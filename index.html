@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mendel</title>
+    <style>
+      :root { --paper: #f2e9d4; --plate-ink: #2b2019; color-scheme: light; }
+      @media (prefers-color-scheme: dark) { :root { --paper: #dcd1b9; --plate-ink: #261c15; } }
+      html, body { margin: 0; height: 100%; background: var(--paper); overflow: hidden; }
+      #view { display: block; width: 100%; height: 100%; }
+      #caption { position: fixed; left: 0; right: 0; bottom: 4vh; text-align: center; pointer-events: none;
+        font: italic 22px/1.2 Georgia, 'Times New Roman', serif; color: var(--plate-ink); letter-spacing: 0.04em; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="caption"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
