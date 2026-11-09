@@ -30,7 +30,7 @@ scene.add(sun, sun.target);
 
 const plate = createPlate(renderer);
 const cssVar = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const applyTheme = () => plate.setInk(cssVar('--paper'), cssVar('--plate-ink'));
+const applyTheme = () => plate.setInk(cssVar('--plate-ink'));
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 scene.add(createGround());
@@ -75,6 +75,7 @@ function show(i: number) {
 
 // The sun is fixed in the world (upper left of the opening view), so shadows turn as you orbit.
 const SUN_DIR = new THREE.Vector3(-0.23, 0.57, 0.83).normalize();
+plate.setSun(SUN_DIR);
 function placeSun() {
   sun.position.copy(controls.target).addScaledVector(SUN_DIR, 30);
   sun.target.position.copy(controls.target);

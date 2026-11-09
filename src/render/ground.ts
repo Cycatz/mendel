@@ -33,11 +33,11 @@ function grassMaterial() {
         vec2 p = vWorld.xz;
         float fw = length(fwidth(p));                 // metres per pixel here
         vec3 grass = vec3(0.4, 0.6, 0.2);
-        grass = mix(grass, vec3(0.62, 0.65, 0.3), smoothstep(0.5, 0.85, gnoise(p * 0.07 + 3.0)) * 0.7); // drier patches
-        grass = mix(grass, vec3(0.26, 0.47, 0.19), smoothstep(0.55, 0.9, gnoise(p * 0.22 + 11.0)) * 0.55); // lush clumps
-        grass *= 0.9 + 0.2 * mix(gnoise(p * 1.3 + 7.0), 0.5, smoothstep(0.03, 0.2, fw));
-        grass *= 1.0 - 0.13 * dabs(p, 0.08, 0.018, fw, 1.0);                 // dark tufts
-        grass = mix(grass, vec3(0.7, 0.77, 0.36), 0.3 * dabs(p, 0.07, 0.014, fw, 9.0)); // lit blades
+        grass = mix(grass, vec3(0.62, 0.65, 0.3), smoothstep(0.5, 0.85, gnoise(p * 0.07 + 3.0)) * 0.35); // drier patches
+        grass = mix(grass, vec3(0.26, 0.47, 0.19), smoothstep(0.55, 0.9, gnoise(p * 0.22 + 11.0)) * 0.25); // lush clumps
+        grass *= 0.95 + 0.1 * mix(gnoise(p * 1.3 + 7.0), 0.5, smoothstep(0.03, 0.2, fw));
+        grass *= 1.0 - 0.06 * dabs(p, 0.08, 0.018, fw, 1.0);                 // dark tufts
+        grass = mix(grass, vec3(0.7, 0.77, 0.36), 0.15 * dabs(p, 0.07, 0.014, fw, 9.0)); // lit blades
         diffuseColor.rgb = pow(grass, vec3(2.2));`)
       .replace('#include <opaque_fragment>', `
         // sunlight reaching the ground, divided by N·L: 1 in the open, 0 in shadow
