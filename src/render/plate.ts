@@ -1,19 +1,20 @@
 // Botanical-plate renderer: draws the garden as a hand-coloured engraving.
-// Three passes per frame:
+// Passes per frame:
 //   1. pigment: albedo (rgb) + direct light × shadow (a), with depth  -> wash, hatching, mask
 //   2. normals: view-space normals                                     -> crease lines
-//   3. soil: objects on SOIL_LAYER, albedo + light (a), with depth      -> translucent ground
-//   4. composite on paper: ink outlines from depth/normal/silhouette edges, tonal hatching
-//      in screen space, a watercolour wash that bleeds a little past the lines and pools at
-//      its edges, and paper grain. Soil is a stippled wash laid over whatever lies inside it,
-//      so roots show through. Everything is drawn from the same geometry as the 3D view.
+//   3. ground: objects on GROUND_LAYER, albedo + shadow (a), with depth -> field
+//   4. composite on paper: the field and sky in loose, inkless watercolour behind everything;
+//      then the specimen with ink outlines from depth/normal/silhouette edges, tonal hatching
+//      in screen space, and a wash that bleeds a little past the lines and pools at its edges.
+//      The field is laid thinly over whatever lies under it, so roots show through.
+//      Everything is drawn from the same geometry as the 3D view.
 import * as THREE from 'three';
 
 const COMPOSITE = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor, tNormal, tDepth, tSoil, tSoilDepth;
+uniform sampler2D tColor, tNormal, tDepth, tGround, tGroundDepth;
 uniform vec2 res;
-uniform float px, near, far, soilAlpha;
+uniform float px, near, far, gNear, gFar;
 uniform vec3 paper, ink;
 varying vec2 vUv;
 
@@ -29,8 +30,8 @@ float rawDepth(vec2 uv) { return texture2D(tDepth, uv).x; }
 float mask(vec2 uv) { return step(rawDepth(uv), 0.99999); }
 float linearize(float raw) { float z = raw * 2.0 - 1.0; return 2.0 * near * far / (far + near - z * (far - near)); }
 float linDepth(vec2 uv) { return linearize(rawDepth(uv)); }
-float soilRaw(vec2 uv) { return texture2D(tSoilDepth, uv).x; }
-float soilMask(vec2 uv) { return step(soilRaw(uv), 0.99999); }
+float groundRaw(vec2 uv) { return texture2D(tGroundDepth, uv).x; }
+float groundDist(float raw) { float z = raw * 2.0 - 1.0; return 2.0 * gNear * gFar / (gFar + gNear - z * (gFar - gNear)); }
 vec3 nrm(vec2 uv) { return texture2D(tNormal, uv).xyz * 2.0 - 1.0; }
 
 // line strength at uv for a sampling radius r (in uv units)
@@ -55,23 +56,6 @@ float edges(vec2 uv, vec2 r) {
   return max(sil, max(dep * 0.9, cre * 0.55));
 }
 
-// outline of the ground: its silhouette, and creases where its faces meet
-float soilEdges(vec2 uv, vec2 r) {
-  float mC = soilMask(uv), dC = linearize(soilRaw(uv)), e = 0.0;
-  vec2 dirs[4];
-  dirs[0] = vec2(1, 0); dirs[1] = vec2(0, 1); dirs[2] = vec2(0.7071, 0.7071); dirs[3] = vec2(0.7071, -0.7071);
-  for (int i = 0; i < 4; i++) {
-    vec2 o = dirs[i] * r;
-    float ma = soilMask(uv + o), mb = soilMask(uv - o);
-    e = max(e, max(abs(mC - ma), abs(mC - mb)));
-    if (mC * ma * mb > 0.5) {
-      float da = linearize(soilRaw(uv + o)), db = linearize(soilRaw(uv - o));
-      e = max(e, smoothstep(0.004, 0.012, abs(da + db - 2.0 * dC) / dC));
-    }
-  }
-  return e;
-}
-
 void main() {
   vec2 frag = gl_FragCoord.xy / px;           // CSS pixels
   vec2 texel = 1.0 / res;                     // one device pixel in uv
@@ -82,6 +66,33 @@ void main() {
   pap *= 0.975 + 0.035 * fbm(frag / 260.0 + 3.1);             // mottling
   float vig = length(vUv - 0.5) * 1.35;
   pap *= 1.0 - 0.09 * pow(vig, 2.6);
+
+  // ---- field and sky, wet-in-wet ----
+  vec2 wet = (vec2(fbm(frag / 70.0 + 4.0), fbm(frag / 70.0 + 8.5)) - 0.5) * 6.0 * px * texel;
+  vec2 uvG = vUv + wet;
+  float gRaw = groundRaw(uvG);
+  float gM = step(gRaw, 0.99999);
+  float gD = groundDist(gRaw);
+  vec4 gC = texture2D(tGround, uvG);
+  vec3 gPig = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
+  // cast shadow: a cooler, deeper glaze, with pigment collecting along its edge
+  float shadow = 1.0 - gC.a;
+  vec2 o2 = 2.5 * px * texel;
+  float shN = (texture2D(tGround, uvG + vec2(o2.x, 0.0)).a + texture2D(tGround, uvG - vec2(o2.x, 0.0)).a
+             + texture2D(tGround, uvG + vec2(0.0, o2.y)).a + texture2D(tGround, uvG - vec2(0.0, o2.y)).a) * 0.25;
+  gPig *= mix(vec3(1.0), vec3(0.6, 0.68, 0.8), shadow);
+  gPig *= 1.0 - 0.18 * smoothstep(0.08, 0.3, abs(shN - gC.a)) * gM;
+  // distance: paler, bluer and more thinly painted toward the horizon
+  float haze = 1.0 - exp(-gD / 40.0);
+  gPig = mix(gPig, vec3(0.74, 0.82, 0.8), haze * 0.75);
+  float gDen = gM * mix(1.0, 0.12, smoothstep(0.0, 1.0, haze)); // solid, melting into the sky at the horizon
+  float cloud = smoothstep(0.45, 0.72, fbm(frag / vec2(260.0, 95.0) + 1.3));
+  // the sky wash is laid down from the top and runs out just above the horizon
+  float clear = 0.0;
+  for (int i = 1; i <= 6; i++) clear += step(0.99999, groundRaw(uvG - vec2(0.0, float(i * i) * 3.0 * px * texel.y)));
+  float skyDen = (1.0 - gM) * mix(0.2, 0.55, smoothstep(0.35, 1.0, vUv.y)) * smoothstep(0.0, 6.0, clear) * (1.0 - 0.85 * cloud);
+  vec3 bg = mix(pap, gPig, clamp(gDen, 0.0, 1.0));
+  bg = mix(bg, vec3(0.58, 0.72, 0.87), clamp(skyDen, 0.0, 1.0));
 
   // ---- watercolour wash, misregistered a little from the engraved line ----
   vec2 bleed = (vec2(fbm(frag / 55.0), fbm(frag / 55.0 + 7.3)) - 0.5) * 5.0 * px * texel;
@@ -103,7 +114,7 @@ void main() {
     rim += mask(uvW + vec2(cos(a), sin(a)) * 3.5 * px * texel);
   }
   float pool = mW * (1.0 - rim / 8.0);
-  vec3 col = mix(pap, pig * (0.92 + 0.08 * pap), clamp(density, 0.0, 1.0));
+  vec3 col = mix(bg, pig * (0.92 + 0.08 * pap), clamp(density, 0.0, 1.0));
   col *= 1.0 - 0.3 * pool;
 
   // ---- ink ----
@@ -129,34 +140,24 @@ void main() {
   float cover = clamp(max(line, h * 0.6), 0.0, 1.0);
   col = mix(col, ink, cover);
 
-  // ---- soil: a translucent wash over the paper and over any plant inside the ground ----
-  float sRaw = soilRaw(uvW);
-  float behind = mW < 0.5 ? 1.0 : step(linearize(sRaw) + 0.002, linDepth(uvW));
-  float sCover = step(sRaw, 0.99999) * behind;
-  vec4 sC = texture2D(tSoil, uvW);
-  float sLit = 0.3 + 0.7 * sC.a;
-  vec3 sPig = pow(max(sC.rgb, 0.0), vec3(1.0 / 2.2)) * mix(0.72, 1.12, smoothstep(0.3, 0.95, sLit));
-  float sDen = soilAlpha * (0.7 + 0.45 * fbm(frag / 3.1 + 9.2)) * (0.85 + 0.3 * fbm(frag / 40.0 + 2.6));
-  col = mix(col, sPig * (0.92 + 0.08 * pap), clamp(sCover * sDen, 0.0, 1.0));
-  // engraver's stipple for earth, denser in shade
-  float dots = step(1.0 - (0.035 + 0.12 * (1.0 - sLit)), hash(floor(frag / 1.7)));
-  col = mix(col, ink, sCover * dots * 0.45);
-  col = mix(col, ink, soilEdges(vUv + wob, px * texel) * 0.8);
+  // ---- the field over anything below ground (roots), thinly enough to see them ----
+  float under = mW * gM * step(gD + 0.002, linDepth(uvW));
+  col = mix(col, bg, under * 0.6);
 
   gl_FragColor = vec4(col, 1.0);
 }`;
 
 export type Plate = ReturnType<typeof createPlate>;
 
-// Objects on this layer (and only this layer) are drawn as translucent ground.
-// Lights that should shade the ground must be enabled on it too.
-export const SOIL_LAYER = 1;
+// Objects on this layer (and only this layer) are drawn as the ground, in watercolour. Their
+// material must write albedo (rgb) and light × shadow (a). Lights must be enabled on it too.
+export const GROUND_LAYER = 1;
 
 export function createPlate(renderer: THREE.WebGLRenderer) {
   const opts = { type: THREE.UnsignedByteType };
   const colorRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
   const normalRT = new THREE.WebGLRenderTarget(1, 1, opts);
-  const soilRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
+  const groundRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
 
   // Lambert lighting, but write albedo and the direct-light factor separately.
   // With the light at intensity π, directDiffuse / albedo = N·L × shadow in [0, 1].
@@ -171,11 +172,12 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       gl_FragColor = vec4(diffuseColor.rgb, clamp(lit, 0.0, 1.0));`);
   };
   const normalMat = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+  const groundCam = new THREE.PerspectiveCamera();
 
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
-      tSoil: { value: soilRT.texture }, tSoilDepth: { value: soilRT.depthTexture }, soilAlpha: { value: 0.5 },
+      tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 20000 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
       paper: { value: new THREE.Color() }, ink: { value: new THREE.Color() },
     },
@@ -198,7 +200,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     // draw(scene, camera, swap): swap(true) puts plants on pigmentMat and hides decor; swap(false) restores
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, swap: (on: boolean) => void) {
       const w = renderer.domElement.width, h = renderer.domElement.height;
-      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); soilRT.setSize(w, h); }
+      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); groundRT.setSize(w, h); }
       U.res.value.set(w, h);
       U.px.value = renderer.getPixelRatio();
       U.near.value = camera.near; U.far.value = camera.far;
@@ -217,13 +219,16 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       renderer.clear();
       renderer.render(scene, camera);
       scene.overrideMaterial = null;
-      const layers = camera.layers.mask;
-      camera.layers.set(SOIL_LAYER);
+      // the ground runs to the horizon, so it gets a camera that sees much farther
+      groundCam.copy(camera);
+      groundCam.far = U.gFar.value;
+      groundCam.updateProjectionMatrix();
+      groundCam.layers.set(GROUND_LAYER);
+      U.gNear.value = groundCam.near;
       renderer.setClearColor(0x000000, 0);
-      renderer.setRenderTarget(soilRT);
+      renderer.setRenderTarget(groundRT);
       renderer.clear();
-      renderer.render(scene, camera);
-      camera.layers.mask = layers;
+      renderer.render(scene, groundCam);
       renderer.shadowMap.autoUpdate = true;
       swap(false);
       renderer.setRenderTarget(null);
