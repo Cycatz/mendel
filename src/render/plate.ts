@@ -14,8 +14,9 @@ precision highp float;
 uniform sampler2D tColor, tNormal, tDepth, tGround, tGroundDepth;
 uniform vec2 res;
 uniform float px, near, far, gNear, gFar;
-uniform vec3 ink, sunView;
-uniform mat4 invProj, camWorld;
+uniform vec3 ink, sunView, sunWorld;
+uniform vec4 crowns[MAX_CROWNS];   // x, z, radius, crown height (0 = unused)
+uniform mat4 invProj, camWorld, viewProj;
 varying vec2 vUv;
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -32,11 +33,14 @@ float mask(vec2 uv) { return step(rawDepth(uv), 0.99999); }
 float linearize(float raw) { float z = raw * 2.0 - 1.0; return 2.0 * near * far / (far + near - z * (far - near)); }
 float linDepth(vec2 uv) { return linearize(rawDepth(uv)); }
 float groundRaw(vec2 uv) { return texture2D(tGroundDepth, uv).x; }
+// is there a landscape object (not the field, which writes black) in the ground pass here?
+float objAt(vec2 uv) { vec4 c = texture2D(tGround, uv); return step(texture2D(tGroundDepth, uv).x, 0.99999) * step(0.01, max(c.r, max(c.g, c.b))); }
 float groundDist(float raw) { float z = raw * 2.0 - 1.0; return 2.0 * gNear * gFar / (gFar + gNear - z * (gFar - gNear)); }
 vec3 nrm(vec2 uv) { return texture2D(tNormal, uv).xyz * 2.0 - 1.0; }
 
 // Two-tone light: which side of the terminator a point is on (1 = sun), and the two paints.
-float sunSide(float lit, vec2 frag) { return smoothstep(0.34, 0.44, lit + (fbm(frag / 22.0) - 0.5) * 0.16); }
+// (wob: a per-pixel wobble of the terminator, computed once in main)
+float sunSide(float lit, float wob) { return smoothstep(0.34, 0.44, lit + wob); }
 vec3 inSun(vec3 c, float k) { return clamp(sat(c, k) * vec3(1.12, 1.08, 0.88) + vec3(0.05, 0.05, 0.0), 0.0, 1.0); }
 vec3 inShade(vec3 c) { return sat(c, 1.1) * vec3(0.5, 0.64, 0.8) + vec3(0.02, 0.07, 0.11); }
 
@@ -77,89 +81,172 @@ void main() {
   vec2 frag = gl_FragCoord.xy / px;           // CSS pixels
   vec2 texel = 1.0 / res;                     // one device pixel in uv
 
-  // ---- sky: cerulean paling to the horizon, puffy cumulus with lit tops and blue-grey bases ----
-  vec3 dir = rayAt(vUv);
-  float up = clamp(dir.y, 0.0, 1.0);
-  vec3 sky = mix(vec3(0.74, 0.87, 0.93), vec3(0.22, 0.52, 0.84), smoothstep(0.0, 0.5, up));
-  float f = cloudAt(dir), th = 0.6;
-  float fw = max(fwidth(f), 1e-4);
-  float show = smoothstep(0.08, 0.22, up);   // the deck thins out toward the horizon
-  float cloud = smoothstep(th - fw, th + fw, f) * show;
-  float base = smoothstep(0.0, 0.07, cloudAt(rayAt(vUv + vec2(0.0, 16.0 * px * texel.y))) - f);
-  vec3 cloudCol = mix(vec3(1.0, 0.99, 0.95), vec3(0.68, 0.75, 0.88), base * 0.9);
-  float outline = (1.0 - smoothstep(0.5, 1.5, abs(f - th) / fw)) * show;
-  vec3 skyCol = mix(sky, cloudCol, cloud);
-  skyCol = mix(skyCol, vec3(0.42, 0.52, 0.68), outline * 0.75);
-
-  // ---- the field ----
-  vec2 wet = (vec2(fbm(frag / 70.0 + 4.0), fbm(frag / 70.0 + 8.5)) - 0.5) * 4.0 * px * texel;
-  vec2 uvG = vUv + wet;
-  float gM = step(groundRaw(uvG), 0.99999);
-  float gD = groundDist(groundRaw(uvG));
-  vec4 gC = texture2D(tGround, uvG);
-  vec3 g = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
-  vec3 gPig = mix(inShade(g), inSun(g, 1.1), sunSide(gC.a, frag));
-  // pigment collects along the edge of a cast shadow
-  vec2 o2 = 2.5 * px * texel;
-  float shN = (texture2D(tGround, uvG + vec2(o2.x, 0.0)).a + texture2D(tGround, uvG - vec2(o2.x, 0.0)).a
-             + texture2D(tGround, uvG + vec2(0.0, o2.y)).a + texture2D(tGround, uvG - vec2(0.0, o2.y)).a) * 0.25;
-  gPig *= 1.0 - 0.15 * smoothstep(0.08, 0.3, abs(shN - gC.a)) * gM;
-  // distance: paler and cooler, meeting the pale sky at the horizon
-  gPig = mix(gPig, vec3(0.74, 0.88, 0.86), (1.0 - exp(-gD / 60.0)) * 0.85);
-  vec3 bg = mix(skyCol, gPig, gM);
-
-  // ---- the plant: colour laid a little off the line, with darker drying edges ----
-  vec2 bleed = (vec2(fbm(frag / 55.0), fbm(frag / 55.0 + 7.3)) - 0.5) * 5.0 * px * texel;
-  vec2 uvW = vUv + bleed;
-  vec4 cW = texture2D(tColor, uvW);
-  float mW = mask(uvW);
-  vec3 alb = pow(max(cW.rgb, 0.0), vec3(1.0 / 2.2));
-  vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(cW.a, frag));
-  float density = mW * (0.9 + 0.1 * fbm(frag / 2.4 + 1.7));
-  float rim = 0.0;
-  for (int i = 0; i < 8; i++) {
-    float a = float(i) * 0.7854;
-    rim += mask(uvW + vec2(cos(a), sin(a)) * 3.0 * px * texel);
-  }
-  vec3 col = mix(bg, pig, clamp(density, 0.0, 1.0));
-  col *= 1.0 - 0.22 * mW * (1.0 - rim / 8.0);
-
-  // ---- pen: thin sepia lines, lighter in the sun ----
-  float m = mask(vUv);
-  float sC = sunSide(texture2D(tColor, vUv).a, frag);
-  vec3 sepia = mix(ink, vec3(0.42, 0.26, 0.16), 0.5);
-  vec2 wob = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * px * texel;
-  float line = edges(vUv + wob, (0.6 + 0.5 * (1.0 - sC)) * px * texel);
-  line *= (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))) * mix(0.95, 0.6, sC * m);
-
-  // hatching in shadow only, laid along the surface in one of a few directions per patch
-  vec3 n = nrm(vUv);
-  vec2 hd = length(n.xy) > 0.15 ? normalize(vec2(-n.y, n.x)) : vec2(0.7071);
-  float ang = floor(atan(hd.y, hd.x) / 0.5236 + 0.5) * 0.5236;
-  hd = vec2(cos(ang), sin(ang));
-  vec2 q = frag + (vec2(noise(frag / 14.0), noise(frag / 14.0 + 5.0)) - 0.5) * 2.0;
-  float across = abs(fract(dot(q, vec2(-hd.y, hd.x)) / 4.0) - 0.5);
-  float hatch = (1.0 - smoothstep(0.08, 0.17, across)) * m * (1.0 - sC);
-  hatch *= smoothstep(0.3, 0.5, noise(vec2(dot(q, hd) / 7.0, dot(q, vec2(-hd.y, hd.x)) / 4.0)));  // strokes start and stop
-  col = mix(col, sepia, clamp(max(line, hatch * 0.5), 0.0, 1.0));
-
-  // ---- white strokes on edges that face the sun ----
+  // noise shared by several effects below, computed once
+  vec2 drift = vec2(fbm(frag / 60.0 + 4.0), fbm(frag / 60.0 + 8.5)) - 0.5;   // large, slow offsets
+  float wob = (noise(frag / 22.0) - 0.5) * 0.16;                            // terminator wobble
   vec2 sd = normalize(sunView.xy + vec2(1e-4));
-  float toSun = m * (1.0 - mask(vUv + sd * 2.5 * px * texel));
-  float glint = toSun * max(smoothstep(0.1, 0.5, dot(n, sunView)), sC) * smoothstep(0.25, 0.5, noise(frag / 6.0));
-  col = mix(col, vec3(1.0, 0.98, 0.9), glint * 0.85);
+  vec3 camPos = camWorld[3].xyz;
 
-  // ---- the field over anything below ground (roots), thinly enough to see them ----
-  float under = mW * gM * step(gD + 0.002, linDepth(uvW));
-  col = mix(col, bg, under * 0.6);
+  // ---- the ground pass: the field (black) and landscape objects standing on it ----
+  vec2 uvG = vUv + drift * 4.0 * px * texel;
+  float gRaw = groundRaw(uvG);
+  float gM = step(gRaw, 0.99999);
+  float gD = groundDist(gRaw);
+  vec4 gC = texture2D(tGround, uvG);
+  float isT = objAt(uvG);
+  vec3 bg;
+
+  if (gM < 0.5) {
+    // ---- sky: cerulean paling to the horizon, puffy cumulus with lit tops and blue-grey bases ----
+    vec3 dir = rayAt(vUv);
+    float up = clamp(dir.y, 0.0, 1.0);
+    bg = mix(vec3(0.74, 0.87, 0.93), vec3(0.22, 0.52, 0.84), smoothstep(0.0, 0.5, up));
+    float f = cloudAt(dir), th = 0.6;
+    float fw = max(fwidth(f), 1e-4);
+    float show = smoothstep(0.08, 0.22, up);   // the deck thins out toward the horizon
+    float cloud = smoothstep(th - fw, th + fw, f) * show;
+    if (cloud > 0.0) {
+      float base = smoothstep(0.0, 0.07, cloudAt(rayAt(vUv + vec2(0.0, 16.0 * px * texel.y))) - f);
+      bg = mix(bg, mix(vec3(1.0, 0.99, 0.95), vec3(0.68, 0.75, 0.88), base * 0.9), cloud);
+    }
+    bg = mix(bg, vec3(0.42, 0.52, 0.68), (1.0 - smoothstep(0.5, 1.5, abs(f - th) / fw)) * show * 0.75);
+  } else if (isT < 0.5) {
+    // ---- the field: one clean, sunlit green, with gentle broad variations fixed to the ground ----
+    vec3 dG = rayAt(uvG);
+    vec2 P = camPos.xz + dG.xz * (camPos.y / max(-dG.y, 1e-4));   // where this pixel meets the ground
+    vec3 field = mix(vec3(0.66, 0.82, 0.25), vec3(0.54, 0.77, 0.38), smoothstep(4.0, 120.0, gD));
+    field *= 1.0 + 0.07 * (noise(P / 18.0) - 0.5) + 0.03 * (noise(P / 3.5) - 0.5);
+    // fine grass strokes around the plant. A blade standing at B covers the pixels above it on
+    // screen, which look at ground just beyond B, so only cells toward the camera can reach here.
+    if (dot(P, P) < 20.0) {
+      vec2 toCam = normalize(camPos.xz - P + vec2(1e-4)), prev = vec2(1e9);
+      for (int k = 0; k < 5; k++) {
+        vec2 c = floor((P + toCam * float(k) * 0.06) / 0.07);
+        if (c == prev) continue;
+        prev = c;
+        vec2 B = (c + vec2(hash(c + 3.1), hash(c + 7.7))) * 0.07;
+        if (hash(c * 0.37 + 11.0) > 0.8 * (1.0 - smoothstep(0.8, 4.0, length(B)))) continue;
+        float h = 0.035 + 0.05 * hash(c + 1.3);
+        vec4 b0 = viewProj * vec4(B.x, 0.0, B.y, 1.0);
+        vec4 b1 = viewProj * vec4(B.x + (hash(c + 5.0) - 0.5) * 0.04, h, B.y + (hash(c + 6.0) - 0.5) * 0.04, 1.0);
+        vec2 s0 = (b0.xy / b0.w * 0.5 + 0.5) * res / px, s1 = (b1.xy / b1.w * 0.5 + 0.5) * res / px;
+        vec2 pa = frag - s0, ba = s1 - s0;
+        float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+        float w = mix(0.8, 0.25, t);         // tapers to the tip
+        float blade = (1.0 - smoothstep(w, w + 0.8, length(pa - ba * t))) * smoothstep(2.0, 5.0, length(ba));
+        vec3 tone = hash(c + 9.0) < 0.6 ? field * vec3(0.84, 0.9, 0.8) : min(field * 1.1 + vec3(0.05, 0.04, 0.0), vec3(1.0));
+        field = mix(field, tone, blade * 0.55);
+      }
+    }
+    // soft shadows of tree crowns, offset away from the sun (they are beyond the shadow map)
+    float crownShade = 0.0, jag = (noise(P * 0.6) - 0.5) * 0.25;
+    for (int i = 0; i < MAX_CROWNS; i++) {
+      vec4 cr = crowns[i];
+      if (cr.w <= 0.0) break;
+      vec2 at = cr.xy - sunWorld.xz / max(sunWorld.y, 0.1) * cr.w;
+      crownShade = max(crownShade, 1.0 - smoothstep(0.7, 1.0, length(P - at) / cr.z + jag));
+    }
+    bg = mix(inShade(field), field, sunSide(gC.a * (1.0 - crownShade), wob));
+    // pigment collects along the edge of a cast shadow
+    vec2 o2 = 2.5 * px * texel;
+    float shN = (texture2D(tGround, uvG + vec2(o2.x, 0.0)).a + texture2D(tGround, uvG - vec2(o2.x, 0.0)).a
+               + texture2D(tGround, uvG + vec2(0.0, o2.y)).a + texture2D(tGround, uvG - vec2(0.0, o2.y)).a) * 0.25;
+    bg *= 1.0 - 0.15 * smoothstep(0.08, 0.3, abs(shN - gC.a));
+    bg = mix(bg, vec3(0.74, 0.87, 0.88), (1.0 - exp(-gD / 150.0)) * 0.8);
+  } else {
+    // ---- trees: flat washes in three tones (yellow-green light, green middle, turquoise
+    //      shade) with crisp, wandering boundaries, pigment collected where tones meet, a little
+    //      granulation in the shade, and line only where near and shaded ----
+    float far = 1.0 - exp(-gD / 220.0);      // aerial perspective
+    vec3 ta = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
+    float tw = (noise(frag / 26.0 + 2.0) - 0.5) * 0.22;   // boundaries wander in broad shapes
+    float L = gC.a + tw;
+    float lz = smoothstep(0.655, 0.685, L), sz = 1.0 - smoothstep(0.385, 0.415, L);
+    vec3 light = clamp(ta * vec3(1.18, 1.12, 0.62) + vec3(0.14, 0.12, 0.0), 0.0, 1.0);
+    vec3 shade = ta * vec3(0.42, 0.72, 0.9) + vec3(0.0, 0.12, 0.2);
+    bg = mix(mix(ta, light, lz), shade, sz);
+    // within each tone the wash still varies softly with the light, as it does when it dries
+    bg *= mix(0.92, 1.05, smoothstep(0.2, 0.95, gC.a)) * (1.0 + 0.06 * (noise(frag / 40.0) - 0.5)) - 0.06 * sz * noise(frag / 1.6);
+    // neighbours: which tone they are in, and whether they are still tree
+    vec2 o1 = 1.5 * px * texel;
+    vec2 nb[4];
+    nb[0] = vec2(o1.x, 0.0); nb[1] = -nb[0]; nb[2] = vec2(0.0, o1.y); nb[3] = -nb[2];
+    float zone = step(0.67, L) + step(0.4, L), toneEdge = 0.0, nT = 0.0;
+    for (int i = 0; i < 4; i++) {
+      float a = texture2D(tGround, uvG + nb[i]).a + tw;
+      toneEdge = max(toneEdge, abs(step(0.67, a) + step(0.4, a) - zone));
+      nT += objAt(uvG + nb[i]);
+    }
+    float sil = 1.0 - nT / 4.0;
+    bg *= 1.0 - 0.12 * min(toneEdge, 1.0) - 0.22 * sil * (1.0 - lz);
+    bg = mix(bg, vec3(0.74, 0.87, 0.93), far * 0.85);
+    bg = mix(bg, vec3(0.36, 0.3, 0.24), sil * (1.0 - lz) * (1.0 - far) * smoothstep(0.3, 0.55, noise(frag / 6.0)) * 0.5);
+    bg = mix(bg, vec3(1.0, 0.98, 0.9), (1.0 - objAt(uvG + sd * 2.0 * px * texel)) * lz * (1.0 - far) * 0.6);
+  }
+  vec3 col = bg;
+
+  // ---- the plant: only where it is, or close enough for its outline to reach ----
+  vec2 r3 = 3.0 * px * texel;
+  float m = mask(vUv);
+  float nearPlant = max(m, max(max(mask(vUv + vec2(r3.x, 0.0)), mask(vUv - vec2(r3.x, 0.0))),
+                               max(mask(vUv + vec2(0.0, r3.y)), mask(vUv - vec2(0.0, r3.y)))));
+  if (nearPlant > 0.0) {
+    // colour laid a little off the line, with darker drying edges
+    vec2 uvW = vUv + drift * 5.0 * px * texel;
+    float mW = mask(uvW);
+    if (mW > 0.0) {
+      vec4 cW = texture2D(tColor, uvW);
+      vec3 alb = pow(max(cW.rgb, 0.0), vec3(1.0 / 2.2));
+      vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(cW.a, wob));
+      float rim = 0.0;
+      for (int i = 0; i < 8; i++) {
+        float a = float(i) * 0.7854;
+        rim += mask(uvW + vec2(cos(a), sin(a)) * 3.0 * px * texel);
+      }
+      col = mix(bg, pig, 0.9 + 0.1 * noise(frag / 2.4 + 1.7));
+      col *= 1.0 - 0.22 * (1.0 - rim / 8.0);
+    }
+
+    // pen: thin sepia lines, lighter in the sun
+    float sC = sunSide(texture2D(tColor, vUv).a, wob);
+    vec3 sepia = mix(ink, vec3(0.42, 0.26, 0.16), 0.5);
+    vec2 pw = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * px * texel;
+    float line = edges(vUv + pw, (0.6 + 0.5 * (1.0 - sC)) * px * texel);
+    line *= (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))) * mix(0.95, 0.6, sC * m);
+    float hatch = 0.0, glint = 0.0;
+    if (m > 0.0) {
+      // hatching in shadow only, laid along the surface in one of a few directions per patch
+      vec3 n = nrm(vUv);
+      if (sC < 1.0) {
+        vec2 hd = length(n.xy) > 0.15 ? normalize(vec2(-n.y, n.x)) : vec2(0.7071);
+        float ang = floor(atan(hd.y, hd.x) / 0.5236 + 0.5) * 0.5236;
+        hd = vec2(cos(ang), sin(ang));
+        vec2 q = frag + (drift * 2.0);
+        float across = abs(fract(dot(q, vec2(-hd.y, hd.x)) / 4.0) - 0.5);
+        hatch = (1.0 - smoothstep(0.08, 0.17, across)) * (1.0 - sC)
+              * smoothstep(0.3, 0.5, noise(vec2(dot(q, hd) / 7.0, dot(q, vec2(-hd.y, hd.x)) / 4.0)));  // strokes start and stop
+      }
+      // white strokes on edges that face the sun
+      float toSun = 1.0 - mask(vUv + sd * 2.5 * px * texel);
+      glint = toSun * max(smoothstep(0.1, 0.5, dot(n, sunView)), sC) * smoothstep(0.25, 0.5, noise(frag / 6.0));
+    }
+    col = mix(col, sepia, clamp(max(line, hatch * 0.5), 0.0, 1.0));
+    col = mix(col, vec3(1.0, 0.98, 0.9), glint * 0.85);
+
+    // whatever the ground pass has in front of the plant: the field over its roots (thinly, so
+    // they show through), or a tree
+    float behind = mW * gM * step(gD + 0.002, linDepth(uvW));
+    col = mix(col, bg, behind * mix(0.6, 1.0, isT));
+  }
 
   gl_FragColor = vec4(col, 1.0);
 }`;
 
 export type Plate = ReturnType<typeof createPlate>;
 
-// Objects on this layer (and only this layer) are drawn as the ground, in watercolour. Their
-// material must write albedo (rgb) and light × shadow (a). Lights must be enabled on it too.
+// Objects on this layer (and only this layer) are the ground and the landscape on it. Their
+// material writes albedo (rgb) and light × shadow (a); the field writes black albedo, so the
+// composite can tell it from trees. Lights must be enabled on this layer too.
 export const GROUND_LAYER = 1;
 
 export function createPlate(renderer: THREE.WebGLRenderer) {
@@ -188,11 +275,13 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
       tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 20000 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
-      ink: { value: new THREE.Color() }, sunView: { value: new THREE.Vector3(0, 1, 0) },
-      invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() },
+      ink: { value: new THREE.Color() }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
+      crowns: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
+      invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() }, viewProj: { value: new THREE.Matrix4() },
     },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: COMPOSITE,
+    defines: { MAX_CROWNS: 32 },
     depthTest: false, depthWrite: false,
   }));
   const quadScene = new THREE.Scene();
@@ -208,7 +297,11 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       U.ink.value.setStyle(inkCss, THREE.SRGBColorSpace).convertLinearToSRGB();
     },
     // world-space direction toward the sun, for the white edge strokes
-    setSun(dir: THREE.Vector3) { sunWorld.copy(dir).normalize(); },
+    setSun(dir: THREE.Vector3) { sunWorld.copy(dir).normalize(); U.sunWorld.value.copy(sunWorld); },
+    // tree crowns [x, z, radius, height] whose shadows are painted on the field (up to 32)
+    setCrowns(list: [number, number, number, number][]) {
+      U.crowns.value.forEach((v: THREE.Vector4, i: number) => (list[i] ? v.set(...list[i]) : v.set(0, 0, 0, 0)));
+    },
     // draw(scene, camera, swap): swap(true) puts plants on pigmentMat and hides decor; swap(false) restores
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, swap: (on: boolean) => void) {
       const w = renderer.domElement.width, h = renderer.domElement.height;
@@ -248,6 +341,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       scene.background = bg; scene.fog = fog;
       U.invProj.value.copy(camera.projectionMatrixInverse);
       U.camWorld.value.copy(camera.matrixWorld);
+      U.viewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       U.sunView.value.copy(sunWorld).transformDirection(camera.matrixWorldInverse);
       renderer.render(quadScene, quadCam);
     },

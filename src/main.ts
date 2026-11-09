@@ -30,10 +30,15 @@ scene.add(sun, sun.target);
 
 const plate = createPlate(renderer);
 const cssVar = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const applyTheme = () => plate.setInk(cssVar('--plate-ink'));
+// Frames are drawn only when something changes: the camera moves, the plant or theme changes.
+let dirty = true;
+const redraw = () => { dirty = true; };
+const applyTheme = () => { plate.setInk(cssVar('--plate-ink')); redraw(); };
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
-scene.add(createGround());
+const ground = createGround();
+scene.add(ground.group);
+plate.setCrowns(ground.crowns);
 
 const genomes = STARTERS.map(s => parseGenome(s));
 let mesh: THREE.Group | null = null;
@@ -45,6 +50,7 @@ function setRoots(on: boolean) {
   if (rootMesh) rootMesh.visible = on;
   rootsButton.textContent = on ? 'Hide roots' : 'Show roots';
   rootsButton.setAttribute('aria-pressed', String(on));
+  redraw();
 }
 rootsButton.addEventListener('click', () => setRoots(!showRoots));
 
@@ -69,7 +75,7 @@ function show(i: number) {
   const r = Math.max(size.y, size.x, size.z) * 0.62 + 0.2;
   controls.target.copy(mid);
   camera.position.copy(mid).add(new THREE.Vector3(0.55, 0.14, 1).normalize().multiplyScalar(r / Math.tan((camera.fov * Math.PI) / 360)));
-  setRoots(showRoots);
+  setRoots(showRoots); // also redraws
   caption.textContent = `Tab. ${['I', 'II', 'III'][i] ?? i + 1}.  ${genomes[i].name}`;
 }
 
@@ -91,15 +97,17 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / Math.max(1, h);
   camera.updateProjectionMatrix();
+  redraw();
 }
 new ResizeObserver(resize).observe(canvas);
 
 function tick() {
-  controls.update();
+  requestAnimationFrame(tick);
+  if (!controls.update() && !dirty) return;
+  dirty = false;
   const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.01, 0.002, 0.05);
   if (near !== camera.near) { camera.near = near; camera.updateProjectionMatrix(); }
   plate.render(scene, camera, (on) => { if (on) placeSun(); });
-  requestAnimationFrame(tick);
 }
 
 window.addEventListener('keydown', (e) => {
