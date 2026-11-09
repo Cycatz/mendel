@@ -126,7 +126,9 @@ function hills() {
       const t = 0.94 + 0.12 * wave(a * 3 + r * 0.004, [5, 13], [1.1, 2.7]);
       // the same green as the far field where the hills begin, deeper greens farther out
       const k = THREE.MathUtils.smoothstep(r, 170, 1200);
-      col.push(...lin([(0.55 - 0.11 * k) * t, (0.77 - 0.11 * k) * t, (0.37 - 0.06 * k) * t]));
+      const c = [(0.55 - 0.11 * k) * t, (0.77 - 0.11 * k) * t, (0.37 - 0.06 * k) * t];
+      const grey = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+      col.push(...lin(c.map(v => grey + (v - grey) * 0.95))); // matches the field's saturation
     }
   }
   const W = segs + 1;

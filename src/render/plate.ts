@@ -117,6 +117,7 @@ void main() {
     vec2 P = camPos.xz + dG.xz * (camPos.y / max(-dG.y, 1e-4));   // where this pixel meets the ground
     vec3 field = mix(vec3(0.66, 0.82, 0.25), vec3(0.54, 0.77, 0.38), smoothstep(4.0, 120.0, gD));
     field *= 1.0 + 0.07 * (noise(P / 18.0) - 0.5) + 0.03 * (noise(P / 3.5) - 0.5);
+    field = sat(field, 0.95);
     // fine grass strokes around the plant. A blade standing at B covers the pixels above it on
     // screen, which look at ground just beyond B, so only cells toward the camera can reach here.
     if (dot(P, P) < 20.0) {
