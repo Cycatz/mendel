@@ -40,62 +40,135 @@ function paint(g: THREE.BufferGeometry, c: number[]) {
   return g;
 }
 
-// A tree: a trunk and a crown of lumpy clumps. Clump normals lean toward the crown's centre, so
-// the crown lights as one mass and each clump still has its own lit top and shaded underside.
-// Crowns, for the soft shadows the composite paints under them: x, z, radius, crown height.
-export type Crown = [number, number, number, number];
+// Crowns, for the soft shadows painted under them: x, z, radius, crown height.
+type Crown = [number, number, number, number];
 
-function tree(rand: () => number, x: number, z: number, scale: number, crowns: Crown[]) {
-  const trunkH = (1.2 + 1.0 * rand()) * scale, R = (3.0 + 1.6 * rand()) * scale;
-  const parts: THREE.BufferGeometry[] = [];
-  parts.push(paint(new THREE.CylinderGeometry(0.12 * scale, 0.24 * scale, trunkH + R * 0.5, 7).translate(x, (trunkH + R * 0.5) / 2, z), [0.45, 0.38, 0.3]));
+// A crown of lumpy clumps on an optional trunk. Clump normals lean toward the crown's centre, so
+// the crown lights as one mass and each clump still has its own lit top and shaded underside.
+// Distant crowns use coarser clumps (detail 1) to keep the triangle count down.
+function crown(rand: () => number, x: number, z: number, trunkH: number, R: number, clumps: number, crowns: Crown[], parts: THREE.BufferGeometry[]) {
+  const detail = Math.hypot(x, z) < 60 ? 2 : 1;
+  if (trunkH > 0) {
+    const h = trunkH + R * 0.5, w = 0.07 * R;
+    parts.push(paint(new THREE.CylinderGeometry(w * 0.55, w, h, 7).translate(x, h / 2, z), [0.45, 0.38, 0.3]));
+  }
   const centre = new THREE.Vector3(x, trunkH + R * 0.6, z);
   crowns.push([x, z, R * 0.95, centre.y]);
   const green = [0.4 + 0.08 * rand(), 0.64 + 0.06 * rand(), 0.26 + 0.06 * rand()];
-  const clumps = 20 + Math.floor(rand() * 8);
   for (let i = 0; i < clumps; i++) {
     const a = rand() * Math.PI * 2, u = rand();
-    const off = new THREE.Vector3(Math.cos(a) * R * 0.8 * Math.cbrt(u), (rand() - 0.4) * R * 1.0, Math.sin(a) * R * 0.8 * Math.cbrt(u));
+    const off = new THREE.Vector3(Math.cos(a) * R * 0.8 * Math.cbrt(u), (rand() - 0.4) * R, Math.sin(a) * R * 0.8 * Math.cbrt(u));
     const r = R * (0.24 + 0.16 * rand());
-    const g = mergeVertices(new THREE.IcosahedronGeometry(r, 2).deleteAttribute('normal').deleteAttribute('uv'));
+    const g = mergeVertices(new THREE.IcosahedronGeometry(r, detail).deleteAttribute('normal').deleteAttribute('uv'));
     const p = g.getAttribute('position') as THREE.BufferAttribute;
     for (let k = 0; k < p.count; k++) { // lumpy, so the silhouette breaks into smaller masses
       const v = new THREE.Vector3().fromBufferAttribute(p, k);
-      const bump = 1 + 0.18 * Math.sin(v.x * 3.1 / scale + i) * Math.sin(v.y * 2.7 / scale) * Math.sin(v.z * 3.3 / scale + 1);
+      const bump = 1 + 0.18 * Math.sin(v.x * 3.1 / r + i) * Math.sin(v.y * 2.7 / r) * Math.sin(v.z * 3.3 / r + 1);
       p.setXYZ(k, v.x * bump, v.y * bump * 0.85, v.z * bump);
     }
-    g.translate(centre.x + off.x, centre.y + off.y, centre.z + off.z);
+    g.translate(centre.x + off.x, Math.max(centre.y + off.y, r * 0.6), centre.z + off.z);
     g.computeVertexNormals();
     const n = g.getAttribute('normal') as THREE.BufferAttribute;
     for (let k = 0; k < p.count; k++) {
-      const v = new THREE.Vector3().fromBufferAttribute(p, k), out = v.sub(centre).normalize();
+      const out = new THREE.Vector3().fromBufferAttribute(p, k).sub(centre).normalize();
       const nn = new THREE.Vector3().fromBufferAttribute(n, k).multiplyScalar(0.45).addScaledVector(out, 0.55).normalize();
       n.setXYZ(k, nn.x, nn.y, nn.z);
     }
     const tint = 0.92 + 0.16 * rand();
     parts.push(paint(g, green.map(c => c * tint)));
   }
-  return parts;
 }
 
-// One copse for now, behind the plant and a little to the left of the opening view.
-function copse(crowns: Crown[]) {
+const tree = (rand: () => number, x: number, z: number, s: number, crowns: Crown[], parts: THREE.BufferGeometry[]) =>
+  crown(rand, x, z, (1.2 + rand()) * s, (3 + 1.6 * rand()) * s, 20 + Math.floor(rand() * 8), crowns, parts);
+const bush = (rand: () => number, x: number, z: number, crowns: Crown[], parts: THREE.BufferGeometry[]) =>
+  crown(rand, x, z, 0, 1.1 + 0.6 * rand(), 6 + Math.floor(rand() * 3), crowns, parts);
+
+// Copses and hedgerows around the field, 30–150 m out. Copses are spread evenly round the
+// compass (with jitter), so every view has some; the first lands left of the opening view.
+const OPENING = -1.75; // compass angle the opening view looks toward (radians, atan2(z, x))
+function woods(crowns: Crown[]) {
   const rand = mulberry32(11), parts: THREE.BufferGeometry[] = [];
-  const cx = -27, cz = -37;
-  for (let i = 0; i < 8; i++) {
-    const a = rand() * Math.PI * 2, d = 8 * Math.sqrt(rand());
-    parts.push(...tree(rand, cx + Math.cos(a) * d, cz + Math.sin(a) * d, 0.8 + 0.5 * rand(), crowns));
+  const at = (a: number, d: number): [number, number] => [Math.cos(a) * d, Math.sin(a) * d];
+  for (let c = 0; c < 9; c++) {
+    const a = OPENING - 0.35 + (c + (c ? (rand() - 0.5) * 0.5 : 0)) * (Math.PI * 2) / 9;
+    const [cx, cz] = at(a, c ? 35 + 110 * rand() : 70), n = 3 + Math.floor(rand() * 6), spread = 4 + n;
+    for (let i = 0; i < n; i++) {
+      const a = rand() * Math.PI * 2, d = spread * Math.sqrt(rand());
+      tree(rand, cx + Math.cos(a) * d, cz + Math.sin(a) * d, 0.8 + 0.5 * rand(), crowns, parts);
+    }
+  }
+  for (let h = 0; h < 5; h++) {
+    const [cx, cz] = at(OPENING + 0.35 + (h + (rand() - 0.5) * 0.4) * (Math.PI * 2) / 5, 55 + 90 * rand()), len = 25 + 45 * rand();
+    const tangent = Math.atan2(cz, cx) + Math.PI / 2 + (rand() - 0.5) * 0.8;
+    const dx = Math.cos(tangent), dz = Math.sin(tangent);
+    for (let t = -len / 2; t < len / 2; t += 1.5 + rand()) {
+      const x = cx + dx * t + (rand() - 0.5), z = cz + dz * t + (rand() - 0.5);
+      if (rand() < 0.15) tree(rand, x, z, 0.7 + 0.4 * rand(), crowns, parts);
+      else bush(rand, x, z, crowns, parts);
+    }
   }
   for (const g of parts) if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
   return mergeGeometries(parts);
 }
 
-export function createGround() {
+// Rolling hills: flat out to 170 m, then low swells, then higher ranges a few kilometres away.
+function hills() {
+  const rings = 48, segs = 320, pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const wave = (a: number, k: number[], ph: number[]) => k.reduce((s, kk, i) => s + Math.sin(kk * a + ph[i]), 0) / k.length * 0.5 + 0.5;
+  for (let i = 0; i <= rings; i++) {
+    const r = 170 * Math.pow(6000 / 170, i / rings);
+    for (let j = 0; j <= segs; j++) {
+      const a = (j / segs) * Math.PI * 2;
+      const near = THREE.MathUtils.smoothstep(r, 170, 700) * (12 + 45 * wave(a + r * 0.002, [3, 7, 11], [0.3, 1.9, 4.1]));
+      const farR = THREE.MathUtils.smoothstep(r, 900, 3500) * (60 + 260 * wave(a, [2, 5, 9], [2.2, 0.7, 5.3]) ** 2);
+      pos.push(Math.cos(a) * r, near + farR, Math.sin(a) * r);
+      const t = 0.94 + 0.12 * wave(a * 3 + r * 0.004, [5, 13], [1.1, 2.7]);
+      // the same green as the far field where the hills begin, deeper greens farther out
+      const k = THREE.MathUtils.smoothstep(r, 170, 1200);
+      col.push(...lin([(0.55 - 0.11 * k) * t, (0.77 - 0.11 * k) * t, (0.37 - 0.06 * k) * t]));
+    }
+  }
+  const W = segs + 1;
+  for (let i = 0; i < rings; i++) for (let j = 0; j < segs; j++) {
+    const a = i * W + j, b = a + 1, c = a + W, d = c + 1;
+    idx.push(a, b, c, b, d, c); // counter-clockwise from above, so the hills face up
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// The crowns' shadows on the field, drawn once into a small texture centred on the plant.
+// (They are far beyond the plant's shadow map.) Each shadow sits under its crown, pushed away
+// from the sun by the crown's height.
+const SHADE_EXTENT = 200, SHADE_RES = 512;
+function crownShadows(crowns: Crown[], sun: THREE.Vector3) {
+  const data = new Uint8Array(SHADE_RES * SHADE_RES), m = SHADE_RES / (2 * SHADE_EXTENT);
+  const lean = 1 / Math.max(sun.y, 0.1);
+  for (const [x, z, r, h] of crowns) {
+    const cx = (x - sun.x * lean * h + SHADE_EXTENT) * m, cz = (z - sun.z * lean * h + SHADE_EXTENT) * m, rr = r * m;
+    for (let j = Math.max(0, Math.floor(cz - rr)); j <= Math.min(SHADE_RES - 1, Math.ceil(cz + rr)); j++)
+      for (let i = Math.max(0, Math.floor(cx - rr)); i <= Math.min(SHADE_RES - 1, Math.ceil(cx + rr)); i++) {
+        const v = 1 - THREE.MathUtils.smoothstep(Math.hypot(i - cx, j - cz) / rr, 0.7, 1);
+        data[j * SHADE_RES + i] = Math.max(data[j * SHADE_RES + i], Math.round(v * 255));
+      }
+  }
+  const tex = new THREE.DataTexture(data, SHADE_RES, SHADE_RES, THREE.RedFormat);
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return { texture: tex, extent: SHADE_EXTENT };
+}
+
+export function createGround(sun: THREE.Vector3) {
   const group = new THREE.Group(), crowns: Crown[] = [];
   const plane = new THREE.Mesh(new THREE.CircleGeometry(20000, 96).rotateX(-Math.PI / 2), shadowCatcher());
   plane.receiveShadow = true;
-  plane.frustumCulled = false;
-  const trees = new THREE.Mesh(copse(crowns), landMaterial());
-  for (const m of [plane, trees]) { m.layers.set(GROUND_LAYER); group.add(m); }
-  return { group, crowns };
+  const mat = landMaterial();
+  const land = [plane, new THREE.Mesh(woods(crowns), mat), new THREE.Mesh(hills(), mat)];
+  for (const m of land) { m.layers.set(GROUND_LAYER); m.frustumCulled = false; group.add(m); }
+  return { group, shade: crownShadows(crowns, sun.clone().normalize()) };
 }

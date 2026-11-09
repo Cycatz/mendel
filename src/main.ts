@@ -21,6 +21,8 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.495;
 
+// The sun is fixed in the world (upper left of the opening view), so shadows turn as you orbit.
+const SUN_DIR = new THREE.Vector3(-0.23, 0.57, 0.83).normalize();
 const sun = new THREE.DirectionalLight(0xfff3dc, Math.PI);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -36,9 +38,10 @@ const redraw = () => { dirty = true; };
 const applyTheme = () => { plate.setInk(cssVar('--plate-ink')); redraw(); };
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
-const ground = createGround();
+plate.setSun(SUN_DIR);
+const ground = createGround(SUN_DIR);
 scene.add(ground.group);
-plate.setCrowns(ground.crowns);
+plate.setCrownShade(ground.shade);
 
 const genomes = STARTERS.map(s => parseGenome(s));
 let mesh: THREE.Group | null = null;
@@ -79,9 +82,7 @@ function show(i: number) {
   caption.textContent = `Tab. ${['I', 'II', 'III'][i] ?? i + 1}.  ${genomes[i].name}`;
 }
 
-// The sun is fixed in the world (upper left of the opening view), so shadows turn as you orbit.
-const SUN_DIR = new THREE.Vector3(-0.23, 0.57, 0.83).normalize();
-plate.setSun(SUN_DIR);
+// Keep the sun's shadow camera on the plant, sized to the view.
 function placeSun() {
   sun.position.copy(controls.target).addScaledVector(SUN_DIR, 30);
   sun.target.position.copy(controls.target);

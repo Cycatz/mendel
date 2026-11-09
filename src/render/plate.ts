@@ -15,7 +15,8 @@ uniform sampler2D tColor, tNormal, tDepth, tGround, tGroundDepth;
 uniform vec2 res;
 uniform float px, near, far, gNear, gFar;
 uniform vec3 ink, sunView, sunWorld;
-uniform vec4 crowns[MAX_CROWNS];   // x, z, radius, crown height (0 = unused)
+uniform sampler2D tCrownShade;     // shadows of tree crowns on the field, centred on the origin
+uniform float crownExtent;         // half the width the crown-shadow texture covers, m
 uniform mat4 invProj, camWorld, viewProj;
 varying vec2 vUv;
 
@@ -125,7 +126,7 @@ void main() {
         if (c == prev) continue;
         prev = c;
         vec2 B = (c + vec2(hash(c + 3.1), hash(c + 7.7))) * 0.07;
-        if (hash(c * 0.37 + 11.0) > 0.8 * (1.0 - smoothstep(0.8, 4.0, length(B)))) continue;
+        if (hash(c * 0.37 + 11.0) > 0.8 * (1.0 - smoothstep(0.4, 4.3, length(B)))) continue;
         float h = 0.035 + 0.05 * hash(c + 1.3);
         vec4 b0 = viewProj * vec4(B.x, 0.0, B.y, 1.0);
         vec4 b1 = viewProj * vec4(B.x + (hash(c + 5.0) - 0.5) * 0.04, h, B.y + (hash(c + 6.0) - 0.5) * 0.04, 1.0);
@@ -134,17 +135,15 @@ void main() {
         float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
         float w = mix(0.8, 0.25, t);         // tapers to the tip
         float blade = (1.0 - smoothstep(w, w + 0.8, length(pa - ba * t))) * smoothstep(2.0, 5.0, length(ba));
-        vec3 tone = hash(c + 9.0) < 0.6 ? field * vec3(0.84, 0.9, 0.8) : min(field * 1.1 + vec3(0.05, 0.04, 0.0), vec3(1.0));
-        field = mix(field, tone, blade * 0.55);
+        vec3 tone = hash(c + 9.0) < 0.75 ? field * vec3(0.84, 0.9, 0.8) : min(field * 1.1 + vec3(0.05, 0.04, 0.0), vec3(1.0));
+        field = mix(field, tone, blade * 0.55 * (1.0 - smoothstep(1.5, 4.3, length(B))));
       }
     }
-    // soft shadows of tree crowns, offset away from the sun (they are beyond the shadow map)
-    float crownShade = 0.0, jag = (noise(P * 0.6) - 0.5) * 0.25;
-    for (int i = 0; i < MAX_CROWNS; i++) {
-      vec4 cr = crowns[i];
-      if (cr.w <= 0.0) break;
-      vec2 at = cr.xy - sunWorld.xz / max(sunWorld.y, 0.1) * cr.w;
-      crownShade = max(crownShade, 1.0 - smoothstep(0.7, 1.0, length(P - at) / cr.z + jag));
+    // soft shadows of tree crowns, with a little jag in their edges
+    float crownShade = 0.0;
+    if (max(abs(P.x), abs(P.y)) < crownExtent) {
+      vec2 jag = (vec2(noise(P * 0.6), noise(P * 0.6 + 3.0)) - 0.5) * 1.5;
+      crownShade = texture2D(tCrownShade, (P + jag) / (2.0 * crownExtent) + 0.5).r;
     }
     bg = mix(inShade(field), field, sunSide(gC.a * (1.0 - crownShade), wob));
     // pigment collects along the edge of a cast shadow
@@ -152,12 +151,12 @@ void main() {
     float shN = (texture2D(tGround, uvG + vec2(o2.x, 0.0)).a + texture2D(tGround, uvG - vec2(o2.x, 0.0)).a
                + texture2D(tGround, uvG + vec2(0.0, o2.y)).a + texture2D(tGround, uvG - vec2(0.0, o2.y)).a) * 0.25;
     bg *= 1.0 - 0.15 * smoothstep(0.08, 0.3, abs(shN - gC.a));
-    bg = mix(bg, vec3(0.74, 0.87, 0.88), (1.0 - exp(-gD / 150.0)) * 0.8);
+    bg = mix(bg, vec3(0.74, 0.87, 0.9), (1.0 - exp(-gD / 600.0)) * 0.85);
   } else {
     // ---- trees: flat washes in three tones (yellow-green light, green middle, turquoise
     //      shade) with crisp, wandering boundaries, pigment collected where tones meet, a little
     //      granulation in the shade, and line only where near and shaded ----
-    float far = 1.0 - exp(-gD / 220.0);      // aerial perspective
+    float far = 1.0 - exp(-gD / 600.0);      // aerial perspective
     vec3 ta = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
     float tw = (noise(frag / 26.0 + 2.0) - 0.5) * 0.22;   // boundaries wander in broad shapes
     float L = gC.a + tw;
@@ -171,17 +170,18 @@ void main() {
     vec2 o1 = 1.5 * px * texel;
     vec2 nb[4];
     nb[0] = vec2(o1.x, 0.0); nb[1] = -nb[0]; nb[2] = vec2(0.0, o1.y); nb[3] = -nb[2];
-    float zone = step(0.67, L) + step(0.4, L), toneEdge = 0.0, nT = 0.0;
+    // an outer edge is where the neighbour is sky or something well behind; where a hill runs
+    // into the field at the same distance there is no edge
+    float zone = step(0.67, L) + step(0.4, L), toneEdge = 0.0, sil = 0.0;
     for (int i = 0; i < 4; i++) {
       float a = texture2D(tGround, uvG + nb[i]).a + tw;
       toneEdge = max(toneEdge, abs(step(0.67, a) + step(0.4, a) - zone));
-      nT += objAt(uvG + nb[i]);
+      sil += step(gD * 1.04, groundDist(groundRaw(uvG + nb[i]))) * 0.25;
     }
-    float sil = 1.0 - nT / 4.0;
     bg *= 1.0 - 0.12 * min(toneEdge, 1.0) - 0.22 * sil * (1.0 - lz);
-    bg = mix(bg, vec3(0.74, 0.87, 0.93), far * 0.85);
+    bg = mix(bg, vec3(0.74, 0.87, 0.9), far * 0.85);
     bg = mix(bg, vec3(0.36, 0.3, 0.24), sil * (1.0 - lz) * (1.0 - far) * smoothstep(0.3, 0.55, noise(frag / 6.0)) * 0.5);
-    bg = mix(bg, vec3(1.0, 0.98, 0.9), (1.0 - objAt(uvG + sd * 2.0 * px * texel)) * lz * (1.0 - far) * 0.6);
+    bg = mix(bg, vec3(1.0, 0.98, 0.9), step(gD * 1.04, groundDist(groundRaw(uvG + sd * 2.0 * px * texel))) * lz * (1.0 - far) * 0.6);
   }
   vec3 col = bg;
 
@@ -276,12 +276,11 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 20000 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
       ink: { value: new THREE.Color() }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
-      crowns: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
+      tCrownShade: { value: null }, crownExtent: { value: 1 },
       invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() }, viewProj: { value: new THREE.Matrix4() },
     },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
     fragmentShader: COMPOSITE,
-    defines: { MAX_CROWNS: 32 },
     depthTest: false, depthWrite: false,
   }));
   const quadScene = new THREE.Scene();
@@ -298,9 +297,9 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     },
     // world-space direction toward the sun, for the white edge strokes
     setSun(dir: THREE.Vector3) { sunWorld.copy(dir).normalize(); U.sunWorld.value.copy(sunWorld); },
-    // tree crowns [x, z, radius, height] whose shadows are painted on the field (up to 32)
-    setCrowns(list: [number, number, number, number][]) {
-      U.crowns.value.forEach((v: THREE.Vector4, i: number) => (list[i] ? v.set(...list[i]) : v.set(0, 0, 0, 0)));
+    // a texture of tree-crown shadows on the field, covering ±extent metres around the origin
+    setCrownShade(shade: { texture: THREE.Texture; extent: number }) {
+      U.tCrownShade.value = shade.texture; U.crownExtent.value = shade.extent;
     },
     // draw(scene, camera, swap): swap(true) puts plants on pigmentMat and hides decor; swap(false) restores
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, swap: (on: boolean) => void) {
