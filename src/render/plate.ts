@@ -2,16 +2,18 @@
 // Three passes per frame:
 //   1. pigment: albedo (rgb) + direct light × shadow (a), with depth  -> wash, hatching, mask
 //   2. normals: view-space normals                                     -> crease lines
-//   3. composite on paper: ink outlines from depth/normal/silhouette edges, tonal hatching
+//   3. soil: objects on SOIL_LAYER, albedo + light (a), with depth      -> translucent ground
+//   4. composite on paper: ink outlines from depth/normal/silhouette edges, tonal hatching
 //      in screen space, a watercolour wash that bleeds a little past the lines and pools at
-//      its edges, and paper grain. Everything is drawn from the same geometry as the 3D view.
+//      its edges, and paper grain. Soil is a stippled wash laid over whatever lies inside it,
+//      so roots show through. Everything is drawn from the same geometry as the 3D view.
 import * as THREE from 'three';
 
 const COMPOSITE = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor, tNormal, tDepth;
+uniform sampler2D tColor, tNormal, tDepth, tSoil, tSoilDepth;
 uniform vec2 res;
-uniform float px, near, far;
+uniform float px, near, far, soilAlpha;
 uniform vec3 paper, ink;
 varying vec2 vUv;
 
@@ -25,7 +27,10 @@ float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 float rawDepth(vec2 uv) { return texture2D(tDepth, uv).x; }
 float mask(vec2 uv) { return step(rawDepth(uv), 0.99999); }
-float linDepth(vec2 uv) { float z = rawDepth(uv) * 2.0 - 1.0; return 2.0 * near * far / (far + near - z * (far - near)); }
+float linearize(float raw) { float z = raw * 2.0 - 1.0; return 2.0 * near * far / (far + near - z * (far - near)); }
+float linDepth(vec2 uv) { return linearize(rawDepth(uv)); }
+float soilRaw(vec2 uv) { return texture2D(tSoilDepth, uv).x; }
+float soilMask(vec2 uv) { return step(soilRaw(uv), 0.99999); }
 vec3 nrm(vec2 uv) { return texture2D(tNormal, uv).xyz * 2.0 - 1.0; }
 
 // line strength at uv for a sampling radius r (in uv units)
@@ -48,6 +53,23 @@ float edges(vec2 uv, vec2 r) {
     }
   }
   return max(sil, max(dep * 0.9, cre * 0.55));
+}
+
+// outline of the ground: its silhouette, and creases where its faces meet
+float soilEdges(vec2 uv, vec2 r) {
+  float mC = soilMask(uv), dC = linearize(soilRaw(uv)), e = 0.0;
+  vec2 dirs[4];
+  dirs[0] = vec2(1, 0); dirs[1] = vec2(0, 1); dirs[2] = vec2(0.7071, 0.7071); dirs[3] = vec2(0.7071, -0.7071);
+  for (int i = 0; i < 4; i++) {
+    vec2 o = dirs[i] * r;
+    float ma = soilMask(uv + o), mb = soilMask(uv - o);
+    e = max(e, max(abs(mC - ma), abs(mC - mb)));
+    if (mC * ma * mb > 0.5) {
+      float da = linearize(soilRaw(uv + o)), db = linearize(soilRaw(uv - o));
+      e = max(e, smoothstep(0.004, 0.012, abs(da + db - 2.0 * dC) / dC));
+    }
+  }
+  return e;
 }
 
 void main() {
@@ -106,15 +128,35 @@ void main() {
 
   float cover = clamp(max(line, h * 0.6), 0.0, 1.0);
   col = mix(col, ink, cover);
+
+  // ---- soil: a translucent wash over the paper and over any plant inside the ground ----
+  float sRaw = soilRaw(uvW);
+  float behind = mW < 0.5 ? 1.0 : step(linearize(sRaw) + 0.002, linDepth(uvW));
+  float sCover = step(sRaw, 0.99999) * behind;
+  vec4 sC = texture2D(tSoil, uvW);
+  float sLit = 0.3 + 0.7 * sC.a;
+  vec3 sPig = pow(max(sC.rgb, 0.0), vec3(1.0 / 2.2)) * mix(0.72, 1.12, smoothstep(0.3, 0.95, sLit));
+  float sDen = soilAlpha * (0.7 + 0.45 * fbm(frag / 3.1 + 9.2)) * (0.85 + 0.3 * fbm(frag / 40.0 + 2.6));
+  col = mix(col, sPig * (0.92 + 0.08 * pap), clamp(sCover * sDen, 0.0, 1.0));
+  // engraver's stipple for earth, denser in shade
+  float dots = step(1.0 - (0.035 + 0.12 * (1.0 - sLit)), hash(floor(frag / 1.7)));
+  col = mix(col, ink, sCover * dots * 0.45);
+  col = mix(col, ink, soilEdges(vUv + wob, px * texel) * 0.8);
+
   gl_FragColor = vec4(col, 1.0);
 }`;
 
 export type Plate = ReturnType<typeof createPlate>;
 
+// Objects on this layer (and only this layer) are drawn as translucent ground.
+// Lights that should shade the ground must be enabled on it too.
+export const SOIL_LAYER = 1;
+
 export function createPlate(renderer: THREE.WebGLRenderer) {
   const opts = { type: THREE.UnsignedByteType };
   const colorRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
   const normalRT = new THREE.WebGLRenderTarget(1, 1, opts);
+  const soilRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
 
   // Lambert lighting, but write albedo and the direct-light factor separately.
   // With the light at intensity π, directDiffuse / albedo = N·L × shadow in [0, 1].
@@ -133,6 +175,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
+      tSoil: { value: soilRT.texture }, tSoilDepth: { value: soilRT.depthTexture }, soilAlpha: { value: 0.5 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
       paper: { value: new THREE.Color() }, ink: { value: new THREE.Color() },
     },
@@ -155,7 +198,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     // draw(scene, camera, swap): swap(true) puts plants on pigmentMat and hides decor; swap(false) restores
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, swap: (on: boolean) => void) {
       const w = renderer.domElement.width, h = renderer.domElement.height;
-      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); }
+      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); soilRT.setSize(w, h); }
       U.res.value.set(w, h);
       U.px.value = renderer.getPixelRatio();
       U.near.value = camera.near; U.far.value = camera.far;
@@ -174,6 +217,13 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       renderer.clear();
       renderer.render(scene, camera);
       scene.overrideMaterial = null;
+      const layers = camera.layers.mask;
+      camera.layers.set(SOIL_LAYER);
+      renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(soilRT);
+      renderer.clear();
+      renderer.render(scene, camera);
+      camera.layers.mask = layers;
       renderer.shadowMap.autoUpdate = true;
       swap(false);
       renderer.setRenderTarget(null);
