@@ -1,5 +1,5 @@
 // Plate viewer: a PODL genome grown and drawn as a hand-coloured botanical plate.
-// Keys 1–3 (or ?plant=N) pick the starter, R regrows with a new seed.
+// Keys 1–3 (or ?plant=N) pick the starter, R regrows with a new seed, T toggles the roots.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { develop, parseGenome, plantMesh, STARTERS } from './podl';
@@ -8,6 +8,7 @@ import { plantGeometry } from './render/plantMesh';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const caption = document.querySelector<HTMLElement>('#caption')!;
+const rootsButton = document.querySelector<HTMLButtonElement>('#roots')!;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
@@ -33,7 +34,16 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
 
 const genomes = STARTERS.map(s => parseGenome(s));
 let mesh: THREE.Group | null = null;
-let current = 0, seed = 1;
+let rootMesh: THREE.Mesh | null = null;
+let current = 0, seed = 1, showRoots = true;
+
+function setRoots(on: boolean) {
+  showRoots = on;
+  if (rootMesh) rootMesh.visible = on;
+  rootsButton.textContent = on ? 'Hide roots' : 'Show roots';
+  rootsButton.setAttribute('aria-pressed', String(on));
+}
+rootsButton.addEventListener('click', () => setRoots(!showRoots));
 
 function show(i: number) {
   current = i;
@@ -41,19 +51,22 @@ function show(i: number) {
   if (mesh) { scene.remove(mesh); mesh.traverse(o => (o as THREE.Mesh).geometry?.dispose()); }
   // shoot and roots together, as a plate shows a specimen lifted from the ground
   mesh = new THREE.Group();
+  rootMesh = null;
   for (const part of [grown, grown.roots]) {
     if (!part.idx.length) continue;
     const m = new THREE.Mesh(plantGeometry(part), plate.pigmentMat);
     m.castShadow = m.receiveShadow = true;
     mesh.add(m);
+    if (part === grown.roots) rootMesh = m;
   }
   scene.add(mesh);
-  // frame the specimen the way a plate would: whole plant, a little headroom
+  // frame the whole specimen, roots included, so toggling them doesn't move the camera
   const box = new THREE.Box3().setFromObject(mesh);
   const size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
   const r = Math.max(size.y, size.x, size.z) * 0.62 + 0.2;
   controls.target.copy(mid);
   camera.position.copy(mid).add(new THREE.Vector3(0.55, 0.25, 1).normalize().multiplyScalar(r / Math.tan((camera.fov * Math.PI) / 360)));
+  setRoots(showRoots);
   caption.textContent = `Tab. ${['I', 'II', 'III'][i] ?? i + 1}.  ${genomes[i].name}`;
 }
 
@@ -90,6 +103,7 @@ function tick() {
 window.addEventListener('keydown', (e) => {
   if (e.key >= '1' && e.key <= String(genomes.length)) show(+e.key - 1);
   if (e.key === 'r') { seed++; show(current); }
+  if (e.key === 't') setRoots(!showRoots);
 });
 
 resize();
