@@ -11,7 +11,7 @@ import * as THREE from 'three';
 
 const COMPOSITE = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor, tNormal, tDepth, tGround, tGroundDepth;
+uniform sampler2D tColor, tNormal, tDepth, tGround, tGroundDepth, tGrass, tGrassDepth;
 uniform vec2 res;
 uniform float px, near, far, gNear, gFar;
 uniform vec3 ink, sunView, sunWorld;
@@ -127,6 +127,46 @@ vec3 skyCol(vec2 uv) {
   return bg;
 }
 
+// the yellow-green wash a foliage albedo is painted with, in warm sun and teal shade
+vec3 wash(vec3 linAlb, float lit, float wob) {
+  vec3 alb = pow(max(linAlb, 0.0), vec3(1.0 / 2.2));
+  alb = mix(vec3(lum(alb)), alb, 0.95);
+  alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);
+  alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);
+  return mix(inShade(alb), inSun(alb, 1.15), sunSide(lit, wob));
+}
+
+// One scale of painted grass strokes. A blade standing at B covers the pixels above it on
+// screen, which look at ground just beyond B, so only cells toward the camera can reach here.
+// "cell" is the grid size in metres (0.07 near the plant); a blade's height scales with it, but
+// is capped so that its reach stays within the cells scanned. Blades are dense near the plant
+// and thin smoothly to a sparser population by 5 m, which then fades out toward 65 m.
+vec3 bladeLayer(vec3 field, vec2 P, vec2 frag, vec3 camPos, float cell, float weight) {
+  vec2 toCam = normalize(camPos.xz - P + vec2(1e-4)), prev = vec2(1e9);
+  float sc = cell / 0.07;
+  for (int k = 0; k < 6; k++) {
+    vec2 c = floor((P + toCam * float(k) * 0.06 * sc) / cell);
+    if (c == prev) continue;
+    prev = c;
+    vec2 B = (c + vec2(hash(c + 3.1), hash(c + 7.7))) * cell;
+    float lB = length(B), dB = length(B - camPos.xz);
+    float farK = 1.0 - smoothstep(30.0, 65.0, dB);
+    if (hash(c * 0.37 + 11.0) > mix(0.65, 0.3, smoothstep(0.4, 5.0, lB)) * farK) continue;
+    float h = min((0.035 + 0.05 * hash(c + 1.3)) * sc, 5.0 * cell * max(camPos.y, 0.2) / max(dB, 1.0));
+    float jit = 0.04 * sc;
+    vec4 b0 = viewProj * vec4(B.x, 0.0, B.y, 1.0);
+    vec4 b1 = viewProj * vec4(B.x + (hash(c + 5.0) - 0.5) * jit, h, B.y + (hash(c + 6.0) - 0.5) * jit, 1.0);
+    vec2 s0 = (b0.xy / b0.w * 0.5 + 0.5) * res / px, s1 = (b1.xy / b1.w * 0.5 + 0.5) * res / px;
+    vec2 pa = frag - s0, ba = s1 - s0;
+    float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+    float w = mix(0.8, 0.25, t);         // tapers to the tip
+    float blade = (1.0 - smoothstep(w, w + 0.8, length(pa - ba * t))) * smoothstep(2.0, 5.0, length(ba));
+    vec3 tone = hash(c + 9.0) < 0.75 ? field * vec3(0.84, 0.9, 0.8) : min(field * 1.1 + vec3(0.05, 0.04, 0.0), vec3(1.0));
+    field = mix(field, tone, blade * 0.55 * weight);
+  }
+  return field;
+}
+
 // a landscape object (tree) seen at uvG: wash, light and outline
 vec3 treeCol(vec2 uvG, vec2 frag, float wob) {
   vec2 texel = 1.0 / res;
@@ -137,11 +177,7 @@ vec3 treeCol(vec2 uvG, vec2 frag, float wob) {
     // ---- trees: painted like the plant, a yellow-green wash in warm sun and teal shade over
     //      cream paper, with heavy ink outlines where near ----
     float far = 1.0 - exp(-gD / 600.0);      // aerial perspective
-    vec3 alb = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
-    alb = mix(vec3(lum(alb)), alb, 0.95);
-    alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);
-    alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);
-    vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(gC.a, wob));
+    vec3 pig = wash(gC.rgb, gC.a, wob);
     float gran = fbm2(frag / 2.4 + 1.7);
     bg = mix(vec3(0.949, 0.914, 0.831), pig * 0.97, clamp(0.72 + 0.35 * gran, 0.0, 1.0));
     // outer edges: the neighbour is sky or something well behind
@@ -183,28 +219,22 @@ void main() {
     vec2 P = camPos.xz + dG.xz * (camPos.y / max(-dG.y, 1e-4));   // where this pixel meets the ground
     vec3 field = mix(vec3(0.66, 0.82, 0.25), vec3(0.54, 0.77, 0.38), smoothstep(4.0, 120.0, gD));
     field *= 1.0 + 0.07 * (noise(P / 18.0) - 0.5) + 0.03 * (noise(P / 3.5) - 0.5);
+    // mid-range interest, fading out before the backdrop: pooled washes of yellow and blue-green,
+    // and wide mown bands that foreshorten with distance
+    float midK = 1.0 - smoothstep(35.0, 75.0, gD);
+    field = mix(field, vec3(0.8, 0.83, 0.27), smoothstep(0.55, 0.75, noise(P / 11.0 + 4.0)) * 0.5 * midK);
+    field = mix(field, vec3(0.34, 0.66, 0.4), smoothstep(0.58, 0.78, noise(P / 27.0 + 9.0)) * 0.4 * midK);
+    float band = smoothstep(-0.35, 0.35, sin((mat2(0.9, -0.44, 0.44, 0.9) * P).x / 3.0 + (noise(P / 16.0) - 0.5) * 2.4 + (noise(P / 6.0) - 0.5) * 0.8));
+    field *= mix(vec3(1.0), mix(vec3(0.92, 0.96, 0.9), vec3(1.06, 1.05, 1.0), band), midK);
     field = sat(field, 0.95);
-    // fine grass strokes around the plant. A blade standing at B covers the pixels above it on
-    // screen, which look at ground just beyond B, so only cells toward the camera can reach here.
-    if (dot(P, P) < 20.0) {
-      vec2 toCam = normalize(camPos.xz - P + vec2(1e-4)), prev = vec2(1e9);
-      for (int k = 0; k < 5; k++) {
-        vec2 c = floor((P + toCam * float(k) * 0.06) / 0.07);
-        if (c == prev) continue;
-        prev = c;
-        vec2 B = (c + vec2(hash(c + 3.1), hash(c + 7.7))) * 0.07;
-        if (hash(c * 0.37 + 11.0) > 0.8 * (1.0 - smoothstep(0.4, 4.3, length(B)))) continue;
-        float h = 0.035 + 0.05 * hash(c + 1.3);
-        vec4 b0 = viewProj * vec4(B.x, 0.0, B.y, 1.0);
-        vec4 b1 = viewProj * vec4(B.x + (hash(c + 5.0) - 0.5) * 0.04, h, B.y + (hash(c + 6.0) - 0.5) * 0.04, 1.0);
-        vec2 s0 = (b0.xy / b0.w * 0.5 + 0.5) * res / px, s1 = (b1.xy / b1.w * 0.5 + 0.5) * res / px;
-        vec2 pa = frag - s0, ba = s1 - s0;
-        float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
-        float w = mix(0.8, 0.25, t);         // tapers to the tip
-        float blade = (1.0 - smoothstep(w, w + 0.8, length(pa - ba * t))) * smoothstep(2.0, 5.0, length(ba));
-        vec3 tone = hash(c + 9.0) < 0.75 ? field * vec3(0.84, 0.9, 0.8) : min(field * 1.1 + vec3(0.05, 0.04, 0.0), vec3(1.0));
-        field = mix(field, tone, blade * 0.55 * (1.0 - smoothstep(1.5, 4.3, length(B))));
-      }
+    // fine grass strokes, from the plant out to the mid-range. The grid grows with distance from
+    // the camera (relative to the plant's distance), so a stroke keeps about the same size on
+    // screen; two scales crossfade, and near the plant it is the original fine grid.
+    if (gD < 70.0) {
+      float dC = max(length(camPos), 0.5), lv = log2(max(length(P - camPos.xz) / dC, 1.0));
+      float k = floor(lv), f = lv - k;
+      field = bladeLayer(field, P, frag, camPos, 0.07 * exp2(k), 1.0 - f);
+      if (f > 0.01) field = bladeLayer(field, P, frag, camPos, 0.07 * exp2(k + 1.0), f);
     }
     // soft shadows of tree crowns, with a little jag in their edges
     float crownShade = 0.0;
@@ -238,6 +268,34 @@ void main() {
       vec3 sk = gM < 0.5 ? bg : skyCol(vUv);
       vec3 tr = gM < 0.5 ? treeCol(solid, frag, wob) : bg;
       bg = mix(tr, sk, nSky / (nSky + nSolid));
+    }
+  }
+  // grass: painted like the trees and the plant (a wash over cream paper with granulation,
+  // pigment pooled at the drying edge, and a fine broken ink line), wherever a blade is nearer
+  // than the ground pass. The grass target has plain coverage in its alpha, so averaging a few
+  // taps gives clean anti-aliased coverage and the edge strength for the line.
+  {
+    vec2 ob = 2.0 * px * texel;
+    vec3 gA = vec3(0.0);
+    float gN = 0.0, gMin = 1.0;
+    for (int i = 0; i < 5; i++) {
+      vec2 d = i == 0 ? vec2(0.0) : (i < 3 ? vec2(i == 1 ? -1.0 : 1.0, 0.0) : vec2(0.0, i == 3 ? -1.0 : 1.0));
+      vec2 u = uvG + d * ob;
+      vec4 c = texture2D(tGrass, u);
+      gA += c.rgb; gN += c.a;
+      gMin = min(gMin, texture2D(tGrassDepth, u).x);
+    }
+    float g = gN / 5.0, dist = groundDist(gMin), seen = step(gMin, gRaw);
+    if (g > 0.0 && seen > 0.5) {
+      float gran = fbm2(frag / 2.4 + 1.7);
+      vec3 pig = wash(gA / max(gN, 1e-3), 1.0, wob);
+      vec3 pl = mix(vec3(0.949, 0.914, 0.831), pig * 0.97, clamp(0.72 + 0.35 * gran, 0.0, 1.0));
+      pl *= 1.0 - 0.3 * clamp((1.0 - g) * 1.6, 0.0, 1.0);           // pigment pools at the edge
+      pl = mix(pl, FIELD_FAR, smoothstep(40.0, 75.0, dist) * 0.9);   // dissolves into the backdrop
+      float line = smoothstep(0.12, 0.4, g) * (1.0 - smoothstep(0.6, 0.95, g));
+      line *= (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))) * (1.0 - smoothstep(6.0, 28.0, dist)) * 0.25;
+      bg = mix(bg, pl, smoothstep(0.1, 0.5, g));
+      bg = mix(bg, ink, line);
     }
   }
   vec3 col = bg;
@@ -299,12 +357,16 @@ export type Plate = ReturnType<typeof createPlate>;
 // material writes albedo (rgb) and light × shadow (a); the field writes black albedo, so the
 // composite can tell it from trees. Lights must be enabled on this layer too.
 export const GROUND_LAYER = 1;
+// Grass tufts are drawn on their own layer into their own target (colour, coverage, depth).
+export const GRASS_LAYER = 2;
 
 export function createPlate(renderer: THREE.WebGLRenderer) {
   const opts = { type: THREE.UnsignedByteType };
   const colorRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
   const normalRT = new THREE.WebGLRenderTarget(1, 1, opts);
   const groundRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
+  // grass: colour with plain coverage in alpha (so filtering blends it cleanly), and its own depth
+  const grassRT = new THREE.WebGLRenderTarget(1, 1, { ...opts, depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType) });
 
   // Lambert lighting, but write albedo and the direct-light factor separately.
   // With the light at intensity π, directDiffuse / albedo = N·L × shadow in [0, 1].
@@ -324,7 +386,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
-      tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 400 },
+      tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, tGrass: { value: grassRT.texture }, tGrassDepth: { value: grassRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 400 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
       ink: { value: new THREE.Color() }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
       tCrownShade: { value: null }, crownExtent: { value: 1 },
@@ -355,7 +417,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     // draw(scene, camera, swap): swap(true) puts plants on pigmentMat and hides decor; swap(false) restores
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, swap: (on: boolean) => void) {
       const w = renderer.domElement.width, h = renderer.domElement.height;
-      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); groundRT.setSize(w * 2, h * 2); }
+      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); groundRT.setSize(w * 2, h * 2); grassRT.setSize(w * 2, h * 2); }
       U.res.value.set(w, h);
       U.px.value = renderer.getPixelRatio();
       U.near.value = camera.near; U.far.value = camera.far;
@@ -382,6 +444,10 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       U.gNear.value = groundCam.near;
       renderer.setClearColor(0x000000, 0);
       renderer.setRenderTarget(groundRT);
+      renderer.clear();
+      renderer.render(scene, groundCam);
+      groundCam.layers.set(GRASS_LAYER);
+      renderer.setRenderTarget(grassRT);
       renderer.clear();
       renderer.render(scene, groundCam);
       renderer.shadowMap.autoUpdate = true;

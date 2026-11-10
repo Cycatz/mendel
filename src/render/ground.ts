@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../podl';
-import { GROUND_LAYER } from './plate';
+import { GROUND_LAYER, GRASS_LAYER } from './plate';
 
 // Albedo (rgb) and sunlight reaching the surface (a): N·L × shadow.
 function landMaterial() {
@@ -114,6 +114,53 @@ function woods(crowns: Crown[]) {
   return mergeGeometries(parts);
 }
 
+// Set to true to scatter the 3D tufts over the field; off, only the shader's small blades
+// around the plant (in the composite) draw grass.
+const TUFTS = false;
+
+// Upright grass tufts, 1.2–60 m out (from the plant's feet to the horizon). Real geometry, so they hold their place as the camera moves.
+// Tufts grow with distance and are spread log-uniformly in range (density ∝ 1/d²), so they
+// keep about the same size and spacing on screen from near to far; they thin out past 45 m,
+// where the field melts into the backdrop. Drawn unlit into their own pass (see GRASS_LAYER).
+function grass(crowns: Crown[], sun: THREE.Vector3) {
+  const rand = mulberry32(5);
+  const lean = 1 / Math.max(sun.y, 0.1);
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const vert = (x: number, y: number, z: number, c: number[]) => {
+    pos.push(x, y, z); col.push(...c);
+    return pos.length / 3 - 1;
+  };
+  for (let made = 0; made < 7000;) {
+    const d = 1.2 * Math.exp(rand() * Math.log(50)), a = rand() * Math.PI * 2;
+    if (d > 45 && rand() > (60 - d) / 15) continue;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    // not under a crown or its shadow, where the field is painted dark
+    if (crowns.some(([cx, cz, r, h]) => Math.hypot(x - cx, z - cz) < r * 1.1 ||
+        Math.hypot(x - (cx - sun.x * lean * h), z - (cz - sun.z * lean * h)) < r * 1.1)) continue;
+    made++;
+    const s = (0.07 + 0.023 * d) * (0.7 + 0.6 * rand());
+    const tint = 0.88 + 0.24 * rand(), dry = rand() < 0.15;
+    const base = lin((dry ? [0.5, 0.48, 0.2] : [0.3, 0.56, 0.2]).map(c => c * tint));
+    const mid = lin((dry ? [0.62, 0.58, 0.24] : [0.42, 0.68, 0.26]).map(c => c * tint));
+    const tip = lin((dry ? [0.74, 0.68, 0.3] : [0.56, 0.78, 0.32]).map(c => c * tint));
+    for (let b = 0, blades = 3 + Math.floor(rand() * 2); b < blades; b++) {
+      const phi = rand() * Math.PI * 2, ux = Math.cos(phi), uz = Math.sin(phi), vx = -uz, vz = ux;
+      const bx = x + (rand() - 0.5) * 0.5 * s, bz = z + (rand() - 0.5) * 0.5 * s;
+      const h = s * (0.7 + 0.5 * rand()), w = 0.11 * s * (0.8 + 0.4 * rand()), bend = s * (0.12 + 0.3 * rand());
+      const bl = vert(bx - ux * w / 2, 0, bz - uz * w / 2, base), br = vert(bx + ux * w / 2, 0, bz + uz * w / 2, base);
+      const my = 0.55 * h, mx = bx + vx * bend * 0.25, mz = bz + vz * bend * 0.25;
+      const ml = vert(mx - ux * w * 0.3, my, mz - uz * w * 0.3, mid), mr = vert(mx + ux * w * 0.3, my, mz + uz * w * 0.3, mid);
+      const tp = vert(bx + vx * bend, 0.95 * h, bz + vz * bend, tip);
+      for (const [p, q, r] of [[bl, br, mr], [bl, mr, ml], [ml, mr, tp]]) idx.push(p, q, r);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  return g;
+}
+
 // The crowns' shadows on the field, drawn once into a small texture centred on the plant.
 // (They are far beyond the plant's shadow map.) Each shadow sits under its crown, pushed away
 // from the sun by the crown's height.
@@ -140,7 +187,10 @@ export function createGround(sun: THREE.Vector3) {
   const plane = new THREE.Mesh(new THREE.CircleGeometry(90, 64).rotateX(-Math.PI / 2), shadowCatcher());
   plane.receiveShadow = true;
   const mat = landMaterial();
-  const land = [plane, new THREE.Mesh(woods(crowns), mat)];
-  for (const m of land) { m.layers.set(GROUND_LAYER); m.frustumCulled = false; group.add(m); }
-  return { group, shade: crownShadows(crowns, sun.clone().normalize()) };
+  const dir = sun.clone().normalize();
+  const trees = new THREE.Mesh(woods(crowns), mat);   // fills `crowns`, which the grass avoids
+  const land: [THREE.Mesh, number][] = [[plane, GROUND_LAYER], [trees, GROUND_LAYER]];
+  if (TUFTS) land.push([new THREE.Mesh(grass(crowns, dir), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })), GRASS_LAYER]);
+  for (const [m, layer] of land) { m.layers.set(layer); m.frustumCulled = false; group.add(m); }
+  return { group, shade: crownShadows(crowns, dir) };
 }
