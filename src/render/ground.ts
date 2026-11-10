@@ -46,9 +46,8 @@ type Crown = [number, number, number, number];
 
 // A crown of lumpy clumps on an optional trunk. Clump normals lean toward the crown's centre, so
 // the crown lights as one mass and each clump still has its own lit top and shaded underside.
-// Distant crowns use coarser clumps (detail 1) to keep the triangle count down.
 function crown(rand: () => number, x: number, z: number, trunkH: number, R: number, clumps: number, crowns: Crown[], parts: THREE.BufferGeometry[]) {
-  const detail = 2;
+  const dist = Math.hypot(x, z);
   if (trunkH > 0) {
     const h = trunkH + R * 0.5, w = 0.07 * R;
     parts.push(paint(new THREE.CylinderGeometry(w * 0.55, w, h, 7).translate(x, h / 2, z), [0.45, 0.38, 0.3]));
@@ -59,7 +58,9 @@ function crown(rand: () => number, x: number, z: number, trunkH: number, R: numb
   for (let i = 0; i < clumps; i++) {
     const a = rand() * Math.PI * 2, u = rand();
     const off = new THREE.Vector3(Math.cos(a) * R * 0.8 * Math.cbrt(u), (rand() - 0.4) * R, Math.sin(a) * R * 0.8 * Math.cbrt(u));
-    const r = R * (0.24 + 0.16 * rand());
+    const r = R * (0.3 + 0.18 * rand());
+    // facets show in the silhouette, so detail follows the clump's size on screen
+    const size = r / Math.max(dist, 1), detail = size > 0.04 ? 4 : size > 0.022 ? 3 : 2;
     const g = mergeVertices(new THREE.IcosahedronGeometry(r, detail).deleteAttribute('normal').deleteAttribute('uv'));
     const p = g.getAttribute('position') as THREE.BufferAttribute;
     for (let k = 0; k < p.count; k++) { // lumpy, so the silhouette breaks into smaller masses
@@ -81,9 +82,9 @@ function crown(rand: () => number, x: number, z: number, trunkH: number, R: numb
 }
 
 const tree = (rand: () => number, x: number, z: number, s: number, crowns: Crown[], parts: THREE.BufferGeometry[]) =>
-  crown(rand, x, z, (1.2 + rand()) * s, (3 + 1.6 * rand()) * s, 20 + Math.floor(rand() * 8), crowns, parts);
+  crown(rand, x, z, (1.2 + rand()) * s, (3 + 1.6 * rand()) * s, 12 + Math.floor(rand() * 5), crowns, parts);
 const bush = (rand: () => number, x: number, z: number, crowns: Crown[], parts: THREE.BufferGeometry[]) =>
-  crown(rand, x, z, 0, 1.1 + 0.6 * rand(), 6 + Math.floor(rand() * 3), crowns, parts);
+  crown(rand, x, z, 0, 1.1 + 0.6 * rand(), 4 + Math.floor(rand() * 2), crowns, parts);
 
 // Copses and hedgerows around the field, 28–65 m out. Copses are spread evenly round the
 // compass (with jitter), so every view has some; the first lands left of the opening view.

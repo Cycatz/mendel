@@ -10,7 +10,7 @@ import { plantGeometry } from './render/plantMesh';
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const caption = document.querySelector<HTMLElement>('#caption')!;
 const rootsButton = document.querySelector<HTMLButtonElement>('#roots')!;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;

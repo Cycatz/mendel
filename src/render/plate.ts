@@ -25,7 +25,8 @@ float noise(vec2 p) {
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
 }
-float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * noise(p); p = p * 2.03 + 11.7; a *= 0.5; } return s; }
+// two octaves: cheaper, and enough for the soft per-pixel variation
+float fbm2(vec2 p) { return 0.667 * noise(p) + 0.333 * noise(p * 2.03 + 11.7); }
 float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 vec3 sat(vec3 c, float k) { return mix(vec3(lum(c)), c, k); }
 
@@ -79,28 +80,13 @@ float edges(vec2 uv, vec2 r) {
   return max(sil, max(dep * 0.9, cre * 0.45));
 }
 
-void main() {
-  vec2 frag = gl_FragCoord.xy / px;           // CSS pixels
-  vec2 texel = 1.0 / res;                     // one device pixel in uv
-
-  // noise shared by several effects below, computed once
-  vec2 drift = vec2(fbm(frag / 60.0 + 4.0), fbm(frag / 60.0 + 8.5)) - 0.5;   // large, slow offsets
-  float wob = (noise(frag / 22.0) - 0.5) * 0.16;                            // terminator wobble
-  vec2 sd = normalize(sunView.xy + vec2(1e-4));
-  vec3 camPos = camWorld[3].xyz;
-
-  // ---- the ground pass: the field (black) and landscape objects standing on it ----
-  vec2 uvG = vUv + drift * 4.0 * px * texel;
-  float gRaw = groundRaw(uvG);
-  float gM = step(gRaw, 0.99999);
-  float gD = groundDist(gRaw);
-  vec4 gC = texture2D(tGround, uvG);
-  float isT = objAt(uvG);
+// the sky and the painted backdrop, by view direction
+vec3 skyCol(vec2 uv) {
+  vec2 texel = 1.0 / res;
+  vec2 frag = gl_FragCoord.xy / px;
   vec3 bg;
-
-  if (gM < 0.5) {
     // ---- sky: cerulean paling to the horizon, puffy cumulus with lit tops and blue-grey bases ----
-    vec3 dir = rayAt(vUv);
+    vec3 dir = rayAt(uv);
     float up = clamp(dir.y, 0.0, 1.0);
     bg = mix(vec3(0.74, 0.87, 0.93), vec3(0.22, 0.52, 0.84), smoothstep(0.0, 0.5, up));
     float f = cloudAt(dir), th = 0.6;
@@ -108,7 +94,7 @@ void main() {
     float show = smoothstep(0.08, 0.22, up);   // the deck thins out toward the horizon
     float cloud = smoothstep(th - fw, th + fw, f) * show;
     if (cloud > 0.0) {
-      float base = smoothstep(0.0, 0.07, cloudAt(rayAt(vUv + vec2(0.0, 16.0 * px * texel.y))) - f);
+      float base = smoothstep(0.0, 0.07, cloudAt(rayAt(uv + vec2(0.0, 16.0 * px * texel.y))) - f);
       bg = mix(bg, mix(vec3(1.0, 0.99, 0.95), vec3(0.68, 0.75, 0.88), base * 0.9), cloud);
     }
     bg = mix(bg, vec3(0.42, 0.52, 0.68), (1.0 - smoothstep(0.5, 1.5, abs(f - th) / fw)) * show * 0.75);
@@ -138,6 +124,59 @@ void main() {
     bg = mix(bg, cTree, mT);      bg = mix(bg, ink, lT);
     // below the horizon, past the end of the ground, is just more field
     bg = mix(bg, FIELD_FAR, 1.0 - smoothstep(-aaT, aaT, t));
+  return bg;
+}
+
+// a landscape object (tree) seen at uvG: wash, light and outline
+vec3 treeCol(vec2 uvG, vec2 frag, float wob) {
+  vec2 texel = 1.0 / res;
+  float gRaw = groundRaw(uvG);
+  float gD = groundDist(gRaw);
+  vec4 gC = texture2D(tGround, uvG);
+  vec3 bg;
+    // ---- trees: painted like the plant, a yellow-green wash in warm sun and teal shade over
+    //      cream paper, with heavy ink outlines where near ----
+    float far = 1.0 - exp(-gD / 600.0);      // aerial perspective
+    vec3 alb = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
+    alb = mix(vec3(lum(alb)), alb, 0.95);
+    alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);
+    alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);
+    vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(gC.a, wob));
+    float gran = fbm2(frag / 2.4 + 1.7);
+    bg = mix(vec3(0.949, 0.914, 0.831), pig * 0.97, clamp(0.72 + 0.35 * gran, 0.0, 1.0));
+    // outer edges: the neighbour is sky or something well behind
+    float sil = 0.0;
+    for (int i = 0; i < 8; i++) {   // a ring, so the line varies smoothly instead of in steps
+      float an = float(i) * 0.7854 + 0.39;
+      sil += step(gD * 1.04, groundDist(groundRaw(uvG + vec2(cos(an), sin(an)) * 1.4 * px * texel))) * 0.125;
+    }
+    sil = smoothstep(0.0, 0.7, sil);
+    bg = mix(bg, vec3(0.74, 0.87, 0.9), far * 0.85);
+    bg = mix(bg, ink, sil * (1.0 - far) * (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))));
+  return bg;
+}
+
+void main() {
+  vec2 frag = gl_FragCoord.xy / px;           // CSS pixels
+  vec2 texel = 1.0 / res;                     // one device pixel in uv
+
+  // noise shared by several effects below, computed once
+  vec2 drift = vec2(fbm2(frag / 60.0 + 4.0), fbm2(frag / 60.0 + 8.5)) - 0.5;   // large, slow offsets
+  float wob = (noise(frag / 22.0) - 0.5) * 0.16;                            // terminator wobble
+  vec2 sd = normalize(sunView.xy + vec2(1e-4));
+  vec3 camPos = camWorld[3].xyz;
+
+  // ---- the ground pass: the field (black) and landscape objects standing on it ----
+  vec2 uvG = vUv + drift * 4.0 * px * texel;
+  float gRaw = groundRaw(uvG);
+  float gM = step(gRaw, 0.99999);
+  float gD = groundDist(gRaw);
+  vec4 gC = texture2D(tGround, uvG);
+  float isT = objAt(uvG);
+  vec3 bg;
+
+  if (gM < 0.5) {
+    bg = skyCol(vUv);
   } else if (isT < 0.5) {
     // ---- the field: one clean, sunlit green, with gentle broad variations fixed to the ground ----
     vec3 dG = rayAt(uvG);
@@ -181,24 +220,25 @@ void main() {
     bg *= 1.0 - 0.15 * smoothstep(0.08, 0.3, abs(shN - gC.a));
     bg = mix(bg, FIELD_FAR, smoothstep(45.0, 88.0, gD));   // melts into the backdrop
   } else {
-    // ---- trees: painted like the plant, a yellow-green wash in warm sun and teal shade over
-    //      cream paper, with heavy ink outlines where near ----
-    float far = 1.0 - exp(-gD / 600.0);      // aerial perspective
-    vec3 alb = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
-    alb = mix(vec3(lum(alb)), alb, 0.95);
-    alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);
-    alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);
-    vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(gC.a, wob));
-    float gran = fbm(frag / 2.4 + 1.7);
-    bg = mix(vec3(0.949, 0.914, 0.831), pig * 0.97, clamp(0.72 + 0.35 * gran, 0.0, 1.0));
-    // outer edges: the neighbour is sky or something well behind
-    vec2 o1 = 1.5 * px * texel;
-    vec2 nb[4];
-    nb[0] = vec2(o1.x, 0.0); nb[1] = -nb[0]; nb[2] = vec2(0.0, o1.y); nb[3] = -nb[2];
-    float sil = 0.0;
-    for (int i = 0; i < 4; i++) sil += step(gD * 1.04, groundDist(groundRaw(uvG + nb[i]))) * 0.25;
-    bg = mix(bg, vec3(0.74, 0.87, 0.9), far * 0.85);
-    bg = mix(bg, ink, sil * (1.0 - far) * (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))));
+    bg = treeCol(uvG, frag, wob);
+  }
+
+  // soften the edge between the sky and a tree: the ground layer is drawn at twice the
+  // resolution, so four sub-samples say how much of this pixel is sky
+  {
+    vec2 e = 0.25 * texel;
+    float nSky = 0.0, nSolid = 0.0;
+    vec2 solid = uvG;
+    for (int i = 0; i < 4; i++) {
+      vec2 u = uvG + vec2(i < 2 ? -e.x : e.x, (i == 0 || i == 2) ? -e.y : e.y);
+      if (groundRaw(u) >= 0.99999) nSky += 1.0;
+      else if (objAt(u) > 0.5) { solid = u; nSolid += 1.0; }
+    }
+    if (nSky > 0.5 && nSolid > 0.5 && (gM < 0.5 || isT > 0.5)) {
+      vec3 sk = gM < 0.5 ? bg : skyCol(vUv);
+      vec3 tr = gM < 0.5 ? treeCol(solid, frag, wob) : bg;
+      bg = mix(tr, sk, nSky / (nSky + nSolid));
+    }
   }
   vec3 col = bg;
 
@@ -210,11 +250,11 @@ void main() {
                                max(mask(vUv + vec2(0.0, r3.y)), mask(vUv - vec2(0.0, r3.y)))));
   if (nearPlant > 0.0) {
     vec3 pap = vec3(0.949, 0.914, 0.831);
-    pap *= 0.965 + 0.05 * fbm(frag / 1.6);                      // fibres
-    pap *= 0.975 + 0.035 * fbm(frag / 260.0 + 3.1);             // mottling
+    pap *= 0.965 + 0.05 * fbm2(frag / 1.6);                      // fibres
+    pap *= 0.975 + 0.035 * fbm2(frag / 260.0 + 3.1);             // mottling
 
     // watercolour wash, misregistered a little from the engraved line
-    vec2 bleed = (vec2(fbm(frag / 55.0), fbm(frag / 55.0 + 7.3)) - 0.5) * 5.0 * px * texel;
+    vec2 bleed = (vec2(fbm2(frag / 55.0), fbm2(frag / 55.0 + 7.3)) - 0.5) * 5.0 * px * texel;
     vec2 uvW = vUv + bleed;
     vec4 cW = texture2D(tColor, uvW);
     float mW = mask(uvW);
@@ -223,14 +263,14 @@ void main() {
     alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);  // yellow, like gamboge-mixed greens
     alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);                // transparent washes over cream paper
     vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(cW.a, wob));   // warm sun, cool teal shadow
-    float gran = fbm(frag / 2.4 + 1.7);
+    float gran = fbm2(frag / 2.4 + 1.7);
     float density = mW * (0.62 + 0.4 * gran) * (1.0 - 0.45 * smoothstep(0.75, 1.0, 0.3 + 0.7 * cW.a));
     float rim = 0.0;                                            // pigment pools at the drying edge
-    for (int i = 0; i < 8; i++) {
-      float a = float(i) * 0.7854;
+    for (int i = 0; i < 4; i++) {
+      float a = float(i) * 1.5708 + 0.7854;
       rim += mask(uvW + vec2(cos(a), sin(a)) * 3.5 * px * texel);
     }
-    float pool = mW * (1.0 - rim / 8.0);
+    float pool = mW * (1.0 - rim / 4.0);
     vec3 pl = mix(pap, pig * (0.92 + 0.08 * pap), clamp(density, 0.0, 1.0));
     pl *= 1.0 - 0.3 * pool;
     col = mix(bg, pl, mW);   // the landscape is left alone outside the wash
@@ -315,7 +355,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     // draw(scene, camera, swap): swap(true) puts plants on pigmentMat and hides decor; swap(false) restores
     render(scene: THREE.Scene, camera: THREE.PerspectiveCamera, swap: (on: boolean) => void) {
       const w = renderer.domElement.width, h = renderer.domElement.height;
-      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); groundRT.setSize(w, h); }
+      if (colorRT.width !== w || colorRT.height !== h) { colorRT.setSize(w, h); normalRT.setSize(w, h); groundRT.setSize(w * 2, h * 2); }
       U.res.value.set(w, h);
       U.px.value = renderer.getPixelRatio();
       U.near.value = camera.near; U.far.value = camera.far;
