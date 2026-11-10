@@ -1,4 +1,5 @@
-// The ground: an endless flat plane at y = 0, and the landscape standing on it, all on
+// The ground: a flat disc at y = 0 (the horizon beyond is a painted backdrop in the composite) and
+// the landscape standing on it, all on
 // GROUND_LAYER. The plane only tells the composite where the field is and where shadows fall
 // (it writes black albedo); the field itself is painted there. Trees write their albedo.
 import * as THREE from 'three';
@@ -47,7 +48,7 @@ type Crown = [number, number, number, number];
 // the crown lights as one mass and each clump still has its own lit top and shaded underside.
 // Distant crowns use coarser clumps (detail 1) to keep the triangle count down.
 function crown(rand: () => number, x: number, z: number, trunkH: number, R: number, clumps: number, crowns: Crown[], parts: THREE.BufferGeometry[]) {
-  const detail = Math.hypot(x, z) < 60 ? 2 : 1;
+  const detail = 2;
   if (trunkH > 0) {
     const h = trunkH + R * 0.5, w = 0.07 * R;
     parts.push(paint(new THREE.CylinderGeometry(w * 0.55, w, h, 7).translate(x, h / 2, z), [0.45, 0.38, 0.3]));
@@ -84,7 +85,7 @@ const tree = (rand: () => number, x: number, z: number, s: number, crowns: Crown
 const bush = (rand: () => number, x: number, z: number, crowns: Crown[], parts: THREE.BufferGeometry[]) =>
   crown(rand, x, z, 0, 1.1 + 0.6 * rand(), 6 + Math.floor(rand() * 3), crowns, parts);
 
-// Copses and hedgerows around the field, 30–150 m out. Copses are spread evenly round the
+// Copses and hedgerows around the field, 28–65 m out. Copses are spread evenly round the
 // compass (with jitter), so every view has some; the first lands left of the opening view.
 const OPENING = -1.75; // compass angle the opening view looks toward (radians, atan2(z, x))
 function woods(crowns: Crown[]) {
@@ -92,14 +93,14 @@ function woods(crowns: Crown[]) {
   const at = (a: number, d: number): [number, number] => [Math.cos(a) * d, Math.sin(a) * d];
   for (let c = 0; c < 9; c++) {
     const a = OPENING - 0.35 + (c + (c ? (rand() - 0.5) * 0.5 : 0)) * (Math.PI * 2) / 9;
-    const [cx, cz] = at(a, c ? 35 + 110 * rand() : 70), n = 3 + Math.floor(rand() * 6), spread = 4 + n;
+    const [cx, cz] = at(a, c ? 28 + 30 * rand() : 45), n = 3 + Math.floor(rand() * 6), spread = 4 + n;
     for (let i = 0; i < n; i++) {
       const a = rand() * Math.PI * 2, d = spread * Math.sqrt(rand());
       tree(rand, cx + Math.cos(a) * d, cz + Math.sin(a) * d, 0.8 + 0.5 * rand(), crowns, parts);
     }
   }
   for (let h = 0; h < 5; h++) {
-    const [cx, cz] = at(OPENING + 0.35 + (h + (rand() - 0.5) * 0.4) * (Math.PI * 2) / 5, 55 + 90 * rand()), len = 25 + 45 * rand();
+    const [cx, cz] = at(OPENING + 0.35 + (h + (rand() - 0.5) * 0.4) * (Math.PI * 2) / 5, 35 + 30 * rand()), len = 15 + 25 * rand();
     const tangent = Math.atan2(cz, cx) + Math.PI / 2 + (rand() - 0.5) * 0.8;
     const dx = Math.cos(tangent), dz = Math.sin(tangent);
     for (let t = -len / 2; t < len / 2; t += 1.5 + rand()) {
@@ -110,38 +111,6 @@ function woods(crowns: Crown[]) {
   }
   for (const g of parts) if (g.index === null) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
   return mergeGeometries(parts);
-}
-
-// Rolling hills: flat out to 170 m, then low swells, then higher ranges a few kilometres away.
-function hills() {
-  const rings = 48, segs = 320, pos: number[] = [], col: number[] = [], idx: number[] = [];
-  const wave = (a: number, k: number[], ph: number[]) => k.reduce((s, kk, i) => s + Math.sin(kk * a + ph[i]), 0) / k.length * 0.5 + 0.5;
-  for (let i = 0; i <= rings; i++) {
-    const r = 170 * Math.pow(6000 / 170, i / rings);
-    for (let j = 0; j <= segs; j++) {
-      const a = (j / segs) * Math.PI * 2;
-      const near = THREE.MathUtils.smoothstep(r, 170, 700) * (12 + 45 * wave(a + r * 0.002, [3, 7, 11], [0.3, 1.9, 4.1]));
-      const farR = THREE.MathUtils.smoothstep(r, 900, 3500) * (60 + 260 * wave(a, [2, 5, 9], [2.2, 0.7, 5.3]) ** 2);
-      pos.push(Math.cos(a) * r, near + farR, Math.sin(a) * r);
-      const t = 0.94 + 0.12 * wave(a * 3 + r * 0.004, [5, 13], [1.1, 2.7]);
-      // the same green as the far field where the hills begin, deeper greens farther out
-      const k = THREE.MathUtils.smoothstep(r, 170, 1200);
-      const c = [(0.55 - 0.11 * k) * t, (0.77 - 0.11 * k) * t, (0.37 - 0.06 * k) * t];
-      const grey = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
-      col.push(...lin(c.map(v => grey + (v - grey) * 0.95))); // matches the field's saturation
-    }
-  }
-  const W = segs + 1;
-  for (let i = 0; i < rings; i++) for (let j = 0; j < segs; j++) {
-    const a = i * W + j, b = a + 1, c = a + W, d = c + 1;
-    idx.push(a, b, c, b, d, c); // counter-clockwise from above, so the hills face up
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
 }
 
 // The crowns' shadows on the field, drawn once into a small texture centred on the plant.
@@ -167,10 +136,10 @@ function crownShadows(crowns: Crown[], sun: THREE.Vector3) {
 
 export function createGround(sun: THREE.Vector3) {
   const group = new THREE.Group(), crowns: Crown[] = [];
-  const plane = new THREE.Mesh(new THREE.CircleGeometry(20000, 96).rotateX(-Math.PI / 2), shadowCatcher());
+  const plane = new THREE.Mesh(new THREE.CircleGeometry(90, 64).rotateX(-Math.PI / 2), shadowCatcher());
   plane.receiveShadow = true;
   const mat = landMaterial();
-  const land = [plane, new THREE.Mesh(woods(crowns), mat), new THREE.Mesh(hills(), mat)];
+  const land = [plane, new THREE.Mesh(woods(crowns), mat)];
   for (const m of land) { m.layers.set(GROUND_LAYER); m.frustumCulled = false; group.add(m); }
   return { group, shade: crownShadows(crowns, sun.clone().normalize()) };
 }

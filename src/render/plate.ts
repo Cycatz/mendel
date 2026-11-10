@@ -29,6 +29,7 @@ float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a
 float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 vec3 sat(vec3 c, float k) { return mix(vec3(lum(c)), c, k); }
 
+const vec3 FIELD_FAR = vec3(0.56, 0.77, 0.4);   // where the ground meets the backdrop
 float rawDepth(vec2 uv) { return texture2D(tDepth, uv).x; }
 float mask(vec2 uv) { return step(rawDepth(uv), 0.99999); }
 float linearize(float raw) { float z = raw * 2.0 - 1.0; return 2.0 * near * far / (far + near - z * (far - near)); }
@@ -111,6 +112,32 @@ void main() {
       bg = mix(bg, mix(vec3(1.0, 0.99, 0.95), vec3(0.68, 0.75, 0.88), base * 0.9), cloud);
     }
     bg = mix(bg, vec3(0.42, 0.52, 0.68), (1.0 - smoothstep(0.5, 1.5, abs(f - th) / fw)) * show * 0.75);
+    // ---- backdrop: painted ridges, hills and a treeline around the horizon. They are drawn
+    //      by direction only (at infinity), so there is nothing far away to render ----
+    float az = atan(dir.z, dir.x), t = dir.y / max(length(dir.xz), 1e-4);
+    float aaT = max(fwidth(t), 1e-4);
+    vec3 hz = vec3(0.74, 0.87, 0.9);
+    float w1 = 0.5 + 0.5 * (0.5 * sin(3.0 * az + 1.0) + 0.3 * sin(7.0 * az + 4.0) + 0.2 * sin(13.0 * az + 2.0));
+    float w2 = 0.5 + 0.5 * (0.5 * sin(5.0 * az + 2.5) + 0.3 * sin(11.0 * az + 0.4) + 0.2 * sin(19.0 * az + 3.3));
+    float hFar = 0.05 + 0.07 * w1 * w1;
+    float hMid = 0.028 + 0.04 * w2;
+    float cells = 140.0, cu = az / 6.2832 * cells, cid = mod(floor(cu), cells), cf = fract(cu);
+    float hTree = 0.012 + 0.014 * w1 + (0.006 + 0.012 * hash(vec2(cid, 3.0))) * sqrt(max(1.0 - pow(2.0 * cf - 1.0, 2.0), 0.0));
+    float mF = 1.0 - smoothstep(-aaT, aaT, t - hFar);
+    float mM = 1.0 - smoothstep(-aaT, aaT, t - hMid);
+    float mT = (1.0 - smoothstep(-aaT, aaT, t - hTree)) * smoothstep(-aaT, aaT, t);
+    vec3 cFar = mix(vec3(0.5, 0.66, 0.62), hz, 0.45);
+    vec3 cMid = mix(vec3(0.5, 0.74, 0.4), hz, 0.3);
+    vec3 cTree = mix(vec3(0.55, 0.74, 0.28), vec3(0.3, 0.52, 0.42), smoothstep(hTree * 0.7, 0.0, t) * 0.7);
+    vec3 sepiaB = vec3(0.32, 0.27, 0.22);
+    float lF = (1.0 - smoothstep(0.0, 1.6 * aaT, abs(t - hFar))) * 0.3;
+    float lM = (1.0 - smoothstep(0.0, 1.6 * aaT, abs(t - hMid))) * 0.4;
+    float lT = (1.0 - smoothstep(0.0, 1.6 * aaT, abs(t - hTree))) * 0.6 * step(0.0, t);
+    bg = mix(bg, cFar, mF);       bg = mix(bg, sepiaB, lF * mF * step(0.0, t - hFar + 3.0 * aaT));
+    bg = mix(bg, cMid, mM);       bg = mix(bg, sepiaB, lM * mM);
+    bg = mix(bg, cTree, mT);      bg = mix(bg, ink, lT);
+    // below the horizon, past the end of the ground, is just more field
+    bg = mix(bg, FIELD_FAR, 1.0 - smoothstep(-aaT, aaT, t));
   } else if (isT < 0.5) {
     // ---- the field: one clean, sunlit green, with gentle broad variations fixed to the ground ----
     vec3 dG = rayAt(uvG);
@@ -152,7 +179,7 @@ void main() {
     float shN = (texture2D(tGround, uvG + vec2(o2.x, 0.0)).a + texture2D(tGround, uvG - vec2(o2.x, 0.0)).a
                + texture2D(tGround, uvG + vec2(0.0, o2.y)).a + texture2D(tGround, uvG - vec2(0.0, o2.y)).a) * 0.25;
     bg *= 1.0 - 0.15 * smoothstep(0.08, 0.3, abs(shN - gC.a));
-    bg = mix(bg, vec3(0.74, 0.87, 0.9), (1.0 - exp(-gD / 600.0)) * 0.85);
+    bg = mix(bg, FIELD_FAR, smoothstep(45.0, 88.0, gD));   // melts into the backdrop
   } else {
     // ---- trees: painted like the plant, a yellow-green wash in warm sun and teal shade over
     //      cream paper, with heavy ink outlines where near ----
@@ -257,7 +284,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
-      tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 20000 },
+      tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 400 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
       ink: { value: new THREE.Color() }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
       tCrownShade: { value: null }, crownExtent: { value: 1 },
