@@ -1,12 +1,12 @@
 // Pen-and-watercolour renderer, in the manner of hand-painted background art.
 // Passes per frame:
 //   1. pigment: albedo (rgb) + direct light × shadow (a), with depth  -> colour, light, mask
-//   2. normals: view-space normals                                     -> lines, hatching, highlights
+//   2. normals: view-space normals                                     -> outlines
 //   3. ground: objects on GROUND_LAYER, albedo + shadow (a), with depth -> the field
 //   4. composite: a cerulean sky with outlined cumulus, the field, then the plant. Every
 //      surface is split into warm, clear sunlight and a cool teal shadow along a slightly
-//      wobbly terminator. Thin sepia lines outline the plant, hatching follows its form in
-//      shadow, and white strokes catch the edges that face the sun.
+//      wobbly terminator. The plant is a yellow-green wash over cream paper with heavy ink
+//      outlines.
 import * as THREE from 'three';
 
 const COMPOSITE = /* glsl */ `
@@ -186,53 +186,47 @@ void main() {
   }
   vec3 col = bg;
 
-  // ---- the plant: only where it is, or close enough for its outline to reach ----
-  vec2 r3 = 3.0 * px * texel;
+  // ---- the plant: a hand-coloured engraving. A wash over cream paper that bleeds a little past
+  //      heavy ink outlines ----
+  vec2 r3 = 4.0 * px * texel;
   float m = mask(vUv);
   float nearPlant = max(m, max(max(mask(vUv + vec2(r3.x, 0.0)), mask(vUv - vec2(r3.x, 0.0))),
                                max(mask(vUv + vec2(0.0, r3.y)), mask(vUv - vec2(0.0, r3.y)))));
   if (nearPlant > 0.0) {
-    // colour laid a little off the line, with darker drying edges
-    vec2 uvW = vUv + drift * 5.0 * px * texel;
-    float mW = mask(uvW);
-    if (mW > 0.0) {
-      vec4 cW = texture2D(tColor, uvW);
-      vec3 alb = pow(max(cW.rgb, 0.0), vec3(1.0 / 2.2));
-      vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(cW.a, wob));
-      float rim = 0.0;
-      for (int i = 0; i < 8; i++) {
-        float a = float(i) * 0.7854;
-        rim += mask(uvW + vec2(cos(a), sin(a)) * 3.0 * px * texel);
-      }
-      col = mix(bg, pig, 0.9 + 0.1 * noise(frag / 2.4 + 1.7));
-      col *= 1.0 - 0.22 * (1.0 - rim / 8.0);
-    }
+    vec3 pap = vec3(0.949, 0.914, 0.831);
+    pap *= 0.965 + 0.05 * fbm(frag / 1.6);                      // fibres
+    pap *= 0.975 + 0.035 * fbm(frag / 260.0 + 3.1);             // mottling
 
-    // pen: thin sepia lines, lighter in the sun
-    float sC = sunSide(texture2D(tColor, vUv).a, wob);
-    vec3 sepia = mix(ink, vec3(0.42, 0.26, 0.16), 0.5);
-    vec2 pw = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * px * texel;
-    float line = edges(vUv + pw, (0.6 + 0.5 * (1.0 - sC)) * px * texel);
-    line *= (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))) * mix(0.95, 0.6, sC * m);
-    float hatch = 0.0, glint = 0.0;
-    if (m > 0.0) {
-      // hatching in shadow only, laid along the surface in one of a few directions per patch
-      vec3 n = nrm(vUv);
-      if (sC < 1.0) {
-        vec2 hd = length(n.xy) > 0.15 ? normalize(vec2(-n.y, n.x)) : vec2(0.7071);
-        float ang = floor(atan(hd.y, hd.x) / 0.5236 + 0.5) * 0.5236;
-        hd = vec2(cos(ang), sin(ang));
-        vec2 q = frag + (drift * 2.0);
-        float across = abs(fract(dot(q, vec2(-hd.y, hd.x)) / 4.0) - 0.5);
-        hatch = (1.0 - smoothstep(0.08, 0.17, across)) * (1.0 - sC)
-              * smoothstep(0.3, 0.5, noise(vec2(dot(q, hd) / 7.0, dot(q, vec2(-hd.y, hd.x)) / 4.0)));  // strokes start and stop
-      }
-      // white strokes on edges that face the sun
-      float toSun = 1.0 - mask(vUv + sd * 2.5 * px * texel);
-      glint = toSun * max(smoothstep(0.1, 0.5, dot(n, sunView)), sC) * smoothstep(0.25, 0.5, noise(frag / 6.0));
+    // watercolour wash, misregistered a little from the engraved line
+    vec2 bleed = (vec2(fbm(frag / 55.0), fbm(frag / 55.0 + 7.3)) - 0.5) * 5.0 * px * texel;
+    vec2 uvW = vUv + bleed;
+    vec4 cW = texture2D(tColor, uvW);
+    float mW = mask(uvW);
+    vec3 alb = pow(max(cW.rgb, 0.0), vec3(1.0 / 2.2));
+    alb = mix(vec3(lum(alb)), alb, 0.95);                       // lively body colour
+    alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);  // yellow, like gamboge-mixed greens
+    alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);                // transparent washes over cream paper
+    vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(cW.a, wob));   // warm sun, cool teal shadow
+    float gran = fbm(frag / 2.4 + 1.7);
+    float density = mW * (0.62 + 0.4 * gran) * (1.0 - 0.45 * smoothstep(0.75, 1.0, 0.3 + 0.7 * cW.a));
+    float rim = 0.0;                                            // pigment pools at the drying edge
+    for (int i = 0; i < 8; i++) {
+      float a = float(i) * 0.7854;
+      rim += mask(uvW + vec2(cos(a), sin(a)) * 3.5 * px * texel);
     }
-    col = mix(col, sepia, clamp(max(line, hatch * 0.5), 0.0, 1.0));
-    col = mix(col, vec3(1.0, 0.98, 0.9), glint * 0.85);
+    float pool = mW * (1.0 - rim / 8.0);
+    vec3 pl = mix(pap, pig * (0.92 + 0.08 * pap), clamp(density, 0.0, 1.0));
+    pl *= 1.0 - 0.3 * pool;
+    col = mix(bg, pl, mW);   // the landscape is left alone outside the wash
+
+    // ink
+    float shC = 0.3 + 0.7 * texture2D(tColor, vUv).a;
+    vec2 wob2 = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * px * texel;
+    float weight = 0.75 + 0.9 * (1.0 - shC) * m;                // heavier line on the shadow side
+    float line = edges(vUv + wob2, weight * px * texel);
+    line *= 0.75 + 0.25 * smoothstep(0.2, 0.55, noise(frag / 5.0));
+
+    col = mix(col, ink, clamp(line, 0.0, 1.0));
 
     // whatever the ground pass has in front of the plant: the field over its roots (thinly, so
     // they show through), or a tree
