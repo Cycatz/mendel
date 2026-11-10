@@ -154,35 +154,24 @@ void main() {
     bg *= 1.0 - 0.15 * smoothstep(0.08, 0.3, abs(shN - gC.a));
     bg = mix(bg, vec3(0.74, 0.87, 0.9), (1.0 - exp(-gD / 600.0)) * 0.85);
   } else {
-    // ---- trees: flat washes in three tones (yellow-green light, green middle, turquoise
-    //      shade) with crisp, wandering boundaries, pigment collected where tones meet, a little
-    //      granulation in the shade, and line only where near and shaded ----
+    // ---- trees: painted like the plant, a yellow-green wash in warm sun and teal shade over
+    //      cream paper, with heavy ink outlines where near ----
     float far = 1.0 - exp(-gD / 600.0);      // aerial perspective
-    vec3 ta = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
-    float tw = (noise(frag / 26.0 + 2.0) - 0.5) * 0.22;   // boundaries wander in broad shapes
-    float L = gC.a + tw;
-    float lz = smoothstep(0.655, 0.685, L), sz = 1.0 - smoothstep(0.385, 0.415, L);
-    vec3 light = clamp(ta * vec3(1.18, 1.12, 0.62) + vec3(0.14, 0.12, 0.0), 0.0, 1.0);
-    vec3 shade = ta * vec3(0.42, 0.72, 0.9) + vec3(0.0, 0.12, 0.2);
-    bg = mix(mix(ta, light, lz), shade, sz);
-    // within each tone the wash still varies softly with the light, as it does when it dries
-    bg *= mix(0.92, 1.05, smoothstep(0.2, 0.95, gC.a)) * (1.0 + 0.06 * (noise(frag / 40.0) - 0.5)) - 0.06 * sz * noise(frag / 1.6);
-    // neighbours: which tone they are in, and whether they are still tree
+    vec3 alb = pow(max(gC.rgb, 0.0), vec3(1.0 / 2.2));
+    alb = mix(vec3(lum(alb)), alb, 0.95);
+    alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);
+    alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);
+    vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(gC.a, wob));
+    float gran = fbm(frag / 2.4 + 1.7);
+    bg = mix(vec3(0.949, 0.914, 0.831), pig * 0.97, clamp(0.72 + 0.35 * gran, 0.0, 1.0));
+    // outer edges: the neighbour is sky or something well behind
     vec2 o1 = 1.5 * px * texel;
     vec2 nb[4];
     nb[0] = vec2(o1.x, 0.0); nb[1] = -nb[0]; nb[2] = vec2(0.0, o1.y); nb[3] = -nb[2];
-    // an outer edge is where the neighbour is sky or something well behind; where a hill runs
-    // into the field at the same distance there is no edge
-    float zone = step(0.67, L) + step(0.4, L), toneEdge = 0.0, sil = 0.0;
-    for (int i = 0; i < 4; i++) {
-      float a = texture2D(tGround, uvG + nb[i]).a + tw;
-      toneEdge = max(toneEdge, abs(step(0.67, a) + step(0.4, a) - zone));
-      sil += step(gD * 1.04, groundDist(groundRaw(uvG + nb[i]))) * 0.25;
-    }
-    bg *= 1.0 - 0.12 * min(toneEdge, 1.0) - 0.22 * sil * (1.0 - lz);
+    float sil = 0.0;
+    for (int i = 0; i < 4; i++) sil += step(gD * 1.04, groundDist(groundRaw(uvG + nb[i]))) * 0.25;
     bg = mix(bg, vec3(0.74, 0.87, 0.9), far * 0.85);
-    bg = mix(bg, vec3(0.36, 0.3, 0.24), sil * (1.0 - lz) * (1.0 - far) * smoothstep(0.3, 0.55, noise(frag / 6.0)) * 0.5);
-    bg = mix(bg, vec3(1.0, 0.98, 0.9), step(gD * 1.04, groundDist(groundRaw(uvG + sd * 2.0 * px * texel))) * lz * (1.0 - far) * 0.6);
+    bg = mix(bg, ink, sil * (1.0 - far) * (0.7 + 0.3 * smoothstep(0.2, 0.55, noise(frag / 5.0))));
   }
   vec3 col = bg;
 
