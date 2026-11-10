@@ -19,6 +19,8 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 400);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
+// the wheel handler moves the camera itself (inside controls.update), so the loop never sees it
+controls.addEventListener('change', () => { dirty = true; });
 controls.maxPolarAngle = Math.PI * 0.495;
 
 // The sun is fixed in the world (upper left of the opening view), so shadows turn as you orbit.
