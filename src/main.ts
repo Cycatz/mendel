@@ -1,5 +1,5 @@
 // Plate viewer: a PODL genome grown and drawn as a hand-coloured botanical plate.
-// Keys 1–3 (or ?plant=N) pick the starter, R regrows with a new seed, T toggles the roots.
+// Keys 1–6 (or ?plant=N) pick the starter, R regrows with a new seed, T toggles the roots.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { develop, parseGenome, plantMesh, STARTERS } from './podl';
@@ -81,7 +81,7 @@ function show(i: number) {
   controls.target.copy(mid);
   camera.position.copy(mid).add(new THREE.Vector3(0.55, 0.14, 1).normalize().multiplyScalar(r / Math.tan((camera.fov * Math.PI) / 360)));
   setRoots(showRoots); // also redraws
-  caption.textContent = `Tab. ${['I', 'II', 'III'][i] ?? i + 1}.  ${genomes[i].name}`;
+  caption.textContent = `Tab. ${['I', 'II', 'III', 'IV', 'V', 'VI'][i] ?? i + 1}.  ${genomes[i].name}`;
 }
 
 // Keep the sun's shadow camera on the plant, sized to the view.
@@ -120,6 +120,6 @@ window.addEventListener('keydown', (e) => {
 });
 
 resize();
-// ?plant=1..3 picks the starter shown first (handy for screenshots)
+// ?plant=1..6 picks the starter shown first (handy for screenshots)
 show(Math.max(0, Math.min(genomes.length - 1, (Number(new URLSearchParams(location.search).get('plant')) || 1) - 1)));
 tick();

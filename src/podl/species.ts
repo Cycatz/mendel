@@ -1,5 +1,5 @@
 // Starter genomes. They share one gene set (one "genus"), so crosses pair up homologous loci,
-// but their alleles differ enough to give three very different body plans.
+// but their alleles differ enough to give very different body plans.
 export const FERNWORT = `plant "Fernwort"
 axiom A
 root R
@@ -87,176 +87,443 @@ chromosome 5   # roots: shallow and fibrous
     gf = 0.1
 `;
 
-export const SPIREBUSH = `plant "Spirebush"
+// A broadleaf tree: a straight bole that forks into three limbs, each branching four times
+// and ending in rosettes of leaves and acorn-like nuts.
+export const OAKHART = `plant "Oakhart"
 axiom A
 root R
 
 chromosome 1
-  rule BLOOM @5 : n/n
-    n = A when step >= $BLOOM_AGE -> @flower
-  rule APEX @20 : Sp/Sp
-    Sp = A -> F F [ &($ANGLE) B(0) ] /($PHYLLO) [ &($ANGLE) B(1) ] /($PHYLLO) A
-  rule LATERAL @45 : Bt/Bt
-    Bt dom 2 = B when x < 4 -> F(0.32) [ +(55) @leaf ] [ -(55) @leaf ] [ &(35) B(x + 2) ] ~(10) B(x + 1)
-  rule FRUITING @50 : Fr/0
-    Fr dom 2 = B when x >= 4 -> F(0.15) @fruit
+  rule BLOOM @5 : 0/0
+  rule APEX @20 : Ot/Ot   # the bole
+    Ot = A when step < 4 -> F(0.35) !(0.95) F(0.35) !(0.95) F(0.35) ~(2) A   # tapers as it rises (age thickens the older stretch below)
+  rule CROWN @40 : Oc/Oc   # forks into three limbs
+    Oc = A -> F(0.6) [ &(34) B(0) ] /(120) [ &(40) B(0) ] /(120) [ &(30) B(0) ] /(60) [ ^(5) B(1) ]
+  rule LATERAL @45 : Ob/Ob
+    Ob = B when x < 4 -> F(1.15 - 0.2 * x) ~(10) [ &(65) @leaf(1.2) ] [ &(40) B(x + 1) ] /(137.5) ~(8) B(x + 1)
+  rule FRUITING @50 : On/0
+    On dom 2 = B when x >= 4 -> F(0.25) @leaf(1.5) [ &(70) @fruit(1.5) ]
   rule SEEDHEAD @55 : 0/0
-  num ANGLE @60 : as/as
-    as = 38
-  num PHYLLO @70 : gs/gs
-    gs = 140
-  num INTERNODE @85 : is/is
-    is = 0.28
+  num ANGLE @60 : ao/ao
+    ao = 35
+  num PHYLLO @70 : go/go
+    go = 137.5
+  num INTERNODE @85 : io/io
+    io = 0.5
 
 chromosome 2
-  organ leaf @10 : Ov/Ov
-    Ov = blade(sf(m=2, n1=0.6, n2=1, n3=1), length=0.34, width=0.14, curl=-0.1, fold=0.2, stalk=0.05,
-               color=hsl($LEAF_HUE, 0.5, 0.3))
-  organ leaflet @20 : ps/ps
-    ps = blade(ellipse(), length=0.12, width=0.06, color=hsl($LEAF_HUE, 0.5, 0.3))
-  organ flower @50 : Wh/Wh
-    Wh = whorl(petal, n=$PETALS, tilt=70)
-  num PIGMENT @55 : Ps/Ps
-    Ps dom 2 = 0.8
-  num PETAL_HUE @58 : y/y
-    y = 0.13
-  organ petal @60 : rd/rd
-    rd = blade(ellipse(), length=0.16, width=0.12, curl=-0.1, color=hsl($PETAL_HUE, $PIGMENT, 0.6))
-  num PETALS @65 : fs/fs
-    fs = 6
-  organ fruit @80 : Be/Be
-    Be = whorl(bulb(length=0.12, radius=0.07, point=0.8, color=hsl(0.97, 0.75, 0.42)), n=3, tilt=35)
+  organ leaf @10 : Ro/Ro   # a rosette at each twig end
+    Ro = spiral(leaflet, n=7, height=0.25, tilt=65, shrink=0.96)   # a leafy spray at each twig end
+  organ leaflet @20 : Lo/Lo
+    Lo = blade(sf(m=2, n1=0.7, n2=1, n3=1), length=0.28, width=0.14, curl=-0.12, fold=0.15, stalk=0.03,
+               color=hsl($LEAF_HUE, 0.5, 0.38))
+  organ flower @50 : 0/0
+  num PIGMENT @55 : Po/Po
+    Po = 0.5
+  num PETAL_HUE @58 : vo/vo
+    vo = 0.1
+  organ petal @60 : 0/0
+  num PETALS @65 : fo/fo
+    fo = 0
+  organ fruit @80 : Nu/Nu
+    Nu = group(bulb(length=0.07, radius=0.03, point=0.8, color=hsl(0.09, 0.55, 0.38)),
+               bulb(length=0.03, radius=0.035, point=0.5, color=hsl(0.08, 0.3, 0.3)))
 
 chromosome 3
-  num TROPISM @10 : ts/ts
-    ts = 0.06
-  num STEM_W @30 : sws/sws
-    sws = 0.05
-  num RESERVE @20 : rs/rs
-    rs = 6
-  num ALLOC @40 : als/als
-    als = 0.6
-  num SHADE_TOL @50 : sts/sts
-    sts = 0.15
-  num APICAL @70 : aps/aps
-    aps = 0.9
-  num BLOOM_AGE @60 : es/es
-    es = 10
-  num TAPER @80 : ks/ks
-    ks = 0.65
-  num LEAF_HUE @90 : hs/hs
-    hs = 0.27
+  num TROPISM @10 : to/to
+    to = 0.1
+  num STEM_W @30 : swo/swo
+    swo = 0.2
+  num RESERVE @20 : ro/ro
+    ro = 12
+  num ALLOC @40 : alo/alo
+    alo = 0.5
+  num SHADE_TOL @50 : sto/sto
+    sto = 0.4
+  num APICAL @70 : apo/apo
+    apo = 0.6
+  num BLOOM_AGE @60 : eo/eo
+    eo = 99
+  num TAPER @80 : ko/ko
+    ko = 0.6
+  num LEAF_HUE @90 : ho/ho
+    ho = 0.28
 
-chromosome 4   # temperature tolerance: heat-hardy warm specialist
-  num T_OPT @10 : cs/cs
-    cs = 23
-  num T_WIDTH @30 : ns/ns
-    ns = 11
-  num T_LETHAL_LO @55 : hs/hs
-    hs = 2
-  num T_LETHAL_HI @80 : ss/ss
-    ss = 42
+chromosome 4   # temperature tolerance: temperate, frost-hardy
+  num T_OPT @10 : co/co
+    co = 17
+  num T_WIDTH @30 : no/no
+    no = 13
+  num T_LETHAL_LO @55 : lo/lo
+    lo = -20
+  num T_LETHAL_HI @80 : so/so
+    so = 38
 
-chromosome 5   # roots: a deep taproot
-  rule ROOT_APEX @10 : Rs/Rs
-    Rs = R when depth < $ROOT_DEPTH -> F(0.1) [ &(55) Q ] /(137.5) R
-  rule ROOT_LATERAL @30 : Ls/Ls
-    Ls = Q when x < 2 -> F(0.07) [ &(35) @rootlet ] Q(x + 1)
-  organ rootlet @50 : hs/hs
-    hs = rootlet(length=0.08, radius=0.004, hairs=1.5)
-  num ROOT_DEPTH @60 : ds/ds
-    ds = 0.85
-  num ROOT_ALLOC @70 : as/as
-    as = 0.3
-  num ROOT_GRAV @85 : gs/gs
-    gs = 0.45
+chromosome 5   # roots: a stout taproot with spreading laterals
+  rule ROOT_APEX @10 : Ro/Ro
+    Ro = R when depth < $ROOT_DEPTH -> F(0.27) [ &(70) Q ] /(120) [ &(70) Q ] /(120) [ &(70) Q ] R
+  rule ROOT_LATERAL @30 : Lo/Lo
+    Lo = Q when x < 4 -> F(0.22) ~(15) [ &(40) @rootlet ] [ ^(35) Q(x + 2) ] Q(x + 1)
+  organ rootlet @50 : ro/ro
+    ro = rootlet(length=0.14, radius=0.007, hairs=2)
+  num ROOT_DEPTH @60 : do/do
+    do = 1.6
+  num ROOT_ALLOC @70 : af/af
+    af = 0.35
+  num ROOT_W @80 : rw/rw   # roots as stout as the bole they hold up
+    rw = 0.045
+  num ROOT_GRAV @85 : gr/gr
+    gr = 0.2
 `;
 
-export const STARCUP = `plant "Starcup"
+// A sunflower-like composite: one tall leafy stalk whose head nods under a ring of rays.
+export const SUNRAY = `plant "Sunray"
 axiom A
 root R
 
 chromosome 1
-  rule BLOOM @5 : Sc/Sc
-    Sc dom 2 = A when step >= $BLOOM_AGE -> !(0.6) F(0.45) S(1)
-  rule APEX @20 : Ro/Ro
-    Ro dom 2 = A when step < 6 -> F(0.03) /($PHYLLO) [ &(78) @leaf ] /($PHYLLO) [ &(66) @leaf ] A
-  rule LATERAL @45 : Sb/Sb   # the flowering stalk rises a segment a day...
-    Sb = S when x < 3 -> F(0.45) S(x + 1)
-  rule FRUITING @50 : Sf/Sf  # ...and is crowned with the flower
-    Sf = S when x >= 3 -> F(0.3) @flower U
-  rule SEEDHEAD @55 : Sh/Sh  # the fruit sets a day later
-    Sh = U -> [ &(40) @fruit ]
-  num ANGLE @60 : ac/ac
-    ac = 30
-  num PHYLLO @70 : g/g
-    g = 137.5
-  num INTERNODE @85 : ic/ic
-    ic = 0.2
+  rule BLOOM @5 : Su/Su
+    Su dom 2 = A when step >= $BLOOM_AGE -> F(0.2) /(360 - $BLOOM_AGE * $PHYLLO % 360) ^(70) F(0.1) @flower(1.25)   # undo the phyllotaxis roll, then face the sun
+  rule APEX @20 : Sa/Sa
+    Sa = A -> F ~(4) [ &(58) @leaf ] /($PHYLLO) A
+  rule LATERAL @45 : 0/0
+  rule FRUITING @50 : 0/0
+  rule SEEDHEAD @55 : 0/0
+  num ANGLE @60 : au/au
+    au = 35
+  num PHYLLO @70 : gu/gu
+    gu = 137.5
+  num INTERNODE @85 : iu/iu
+    iu = 0.22
 
 chromosome 2
-  organ leaf @10 : Al/Al
-    Al = blade(sf(m=2, n1=0.4, n2=0.6, n3=0.6), length=0.9, width=0.26, curl=0.35, fold=0.8,
-               color=hsl($LEAF_HUE, 0.35, 0.45), edge=hsl(0.98, 0.5, 0.45))
-  organ leaflet @20 : pc/pc
-    pc = spike(length=0.1, radius=0.01)
-  organ flower @50 : Sg/Sg
-    Sg = spiral(petal, n=18, height=0.3, tilt=72, shrink=0.96)
-  num PIGMENT @55 : Pc/Pc
-    Pc dom 2 = 0.9
-  num PETAL_HUE @58 : o/o
-    o = 0.05
-  organ petal @60 : st/st
-    st = blade(sf(m=1, n1=0.3, n2=0.3, n3=0.3), length=0.35, width=0.12, curl=-0.4,
+  organ leaf @10 : Hl/Hl
+    Hl = blade(heart(), length=0.4, width=0.32, curl=-0.25, fold=0.15, wave=0.3, stalk=0.08,
+               color=hsl($LEAF_HUE, 0.5, 0.33))
+  organ leaflet @20 : pu/pu
+    pu = blade(ellipse(), length=0.1, width=0.05, color=hsl($LEAF_HUE, 0.5, 0.33))
+  organ flower @50 : Hd/Hd   # two rings of rays round a dark seeded disc
+    Hd = group(whorl(petal, n=$PETALS, tilt=84), whorl(scale(petal, s=0.85), n=$PETALS, tilt=74, twist=9),
+               whorl(leaflet, n=10, tilt=95),
+               bulb(length=0.06, radius=0.15, point=0.35, ribs=16, ribdepth=0.05, color=hsl(0.07, 0.6, 0.22)))
+  num PIGMENT @55 : Pu/Pu
+    Pu dom 2 = 0.95
+  num PETAL_HUE @58 : yu/yu
+    yu = 0.12
+  organ petal @60 : Ra/Ra
+    Ra = blade(sf(m=1, n1=0.6, n2=0.9, n3=0.9), length=0.24, width=0.07, curl=-0.12,
                color=hsl($PETAL_HUE, $PIGMENT, 0.55))
+  num PETALS @65 : fu/fu
+    fu = 21
+  organ fruit @80 : 0/0
+
+chromosome 3
+  num TROPISM @10 : tu/tu
+    tu = 0.25
+  num STEM_W @30 : swu/swu
+    swu = 0.014
+  num RESERVE @20 : ru/ru
+    ru = 4
+  num ALLOC @40 : alu/alu
+    alu = 0.75
+  num SHADE_TOL @50 : stu/stu
+    stu = 0.1
+  num APICAL @70 : apu/apu
+    apu = 1
+  num BLOOM_AGE @60 : eu/eu
+    eu = 9
+  num TAPER @80 : ku/ku
+    ku = 0.6
+  num LEAF_HUE @90 : hu/hu
+    hu = 0.29
+
+chromosome 4   # temperature tolerance: a summer annual
+  num T_OPT @10 : cu/cu
+    cu = 24
+  num T_WIDTH @30 : nu/nu
+    nu = 10
+  num T_LETHAL_LO @55 : lu/lu
+    lu = 1
+  num T_LETHAL_HI @80 : su/su
+    su = 40
+
+chromosome 5   # roots: a taproot with short laterals
+  rule ROOT_APEX @10 : Ru/Ru
+    Ru = R when depth < $ROOT_DEPTH -> F(0.09) [ &(60) Q ] /(137.5) R
+  rule ROOT_LATERAL @30 : Lu/Lu
+    Lu = Q when x < 3 -> F(0.06) [ &(40) @rootlet ] Q(x + 1)
+  organ rootlet @50 : ru/ru
+    ru = rootlet(length=0.06, radius=0.003, hairs=2)
+  num ROOT_DEPTH @60 : du/du
+    du = 0.7
+  num ROOT_ALLOC @70 : au/au
+    au = 0.25
+  num ROOT_GRAV @85 : gu/gu
+    gu = 0.4
+`;
+
+// A trained grape vine: a short trunk, two cordons along a (notional) wire, and upright canes
+// with lobed leaves and coiled tendrils. Bunches hang from the cordons.
+export const VINEWOOD = `plant "Vinewood"
+axiom A
+root R
+
+chromosome 1
+  rule BLOOM @5 : 0/0
+  rule APEX @20 : Vt/Vt   # the trunk
+    Vt = A when step < 3 -> F(0.4) ~(5) A
+  rule CROWN @40 : Vc/Vc   # splits into two cordons
+    Vc = A -> [ &(88) C(0) ] /(180) [ &(88) C(0) ]
+  rule LATERAL @45 : Vk/Vk   # cordon: a cane and a bunch at each spur
+    Vk = C when x < 4 -> F(0.32) ~(4) [ ^(75) S(0) ] [ &(90) F(0.05) @fruit ] C(x + 1)
+  rule FRUITING @50 : Vs/Vs   # cane: alternate leaves, each opposite a tendril
+    Vs = S when x < 6 -> F(0.16) ~(12) [ +(60) @leaf ] [ -(50) @leaflet ] /(180) S(x + 1)
+  rule SEEDHEAD @55 : 0/0
+  num ANGLE @60 : av/av
+    av = 40
+  num PHYLLO @70 : gv/gv
+    gv = 180
+  num INTERNODE @85 : iv/iv
+    iv = 0.3
+
+chromosome 2
+  organ leaf @10 : Gl/Gl
+    Gl = blade(lobed(n=5, depth=0.28), length=0.2, width=0.22, curl=-0.2, fold=0.2, wave=0.2, stalk=0.07,
+               color=hsl($LEAF_HUE, 0.45, 0.32))
+  organ leaflet @20 : Td/Td   # a tendril
+    Td = spike(length=0.14, radius=0.003, bend=3, color=hsl(0.22, 0.4, 0.45))
+  organ flower @50 : 0/0
+  num PIGMENT @55 : Pv/Pv
+    Pv dom 2 = 0.55
+  num PETAL_HUE @58 : yv/yv
+    yv = 0.76
+  organ petal @60 : 0/0
+  num PETALS @65 : fv/fv
+    fv = 0
+  organ fruit @80 : Bn/Bn   # a tapering bunch of berries
+    Bn = spiral(offset(bulb(length=0.045, radius=0.022, point=0.55, color=hsl($PETAL_HUE, $PIGMENT, 0.3)), y=0.012),
+                n=34, height=0.24, tilt=78, shrink=0.985)
+
+chromosome 3
+  num TROPISM @10 : tv/tv
+    tv = 0.04
+  num STEM_W @30 : swv/swv
+    swv = 0.022
+  num RESERVE @20 : rv/rv
+    rv = 8
+  num ALLOC @40 : alv/alv
+    alv = 0.55
+  num SHADE_TOL @50 : stv/stv
+    stv = 0.3
+  num APICAL @70 : apv/apv
+    apv = 0.5
+  num BLOOM_AGE @60 : ev/ev
+    ev = 99
+  num TAPER @80 : kv/kv
+    kv = 0.65
+  num LEAF_HUE @90 : hv/hv
+    hv = 0.27
+
+chromosome 4   # temperature tolerance: warm-temperate
+  num T_OPT @10 : cv/cv
+    cv = 22
+  num T_WIDTH @30 : nv/nv
+    nv = 12
+  num T_LETHAL_LO @55 : lv/lv
+    lv = -12
+  num T_LETHAL_HI @80 : sv/sv
+    sv = 42
+
+chromosome 5   # roots: deep and wiry
+  rule ROOT_APEX @10 : Rv/Rv
+    Rv = R when depth < $ROOT_DEPTH -> F(0.12) ~(10) [ &(45) Q ] /(137.5) R
+  rule ROOT_LATERAL @30 : Lv/Lv
+    Lv = Q when x < 3 -> F(0.08) [ &(35) @rootlet ] Q(x + 1)
+  organ rootlet @50 : rv/rv
+    rv = rootlet(length=0.07, radius=0.003, hairs=1.5)
+  num ROOT_DEPTH @60 : dv/dv
+    dv = 1
+  num ROOT_ALLOC @70 : av/av
+    av = 0.3
+  num ROOT_GRAV @85 : gv/gv
+    gv = 0.5
+`;
+
+// A bamboo: a single culm of jointed internodes, with fans of narrow
+// leaves on short branches at the upper nodes.
+export const CANEBRAKE = `plant "Canebrake"
+axiom A
+root R
+
+chromosome 1
+  rule BLOOM @5 : 0/0
+  rule APEX @20 : Bc/Bc   # the rhizome sends up a single culm
+    Bc = A -> C(0)
+  rule CROWN @40 : Bn/Bn   # culm, branching at the upper nodes
+    Bn = C when x >= 4 and x < 13 -> @culm F ~(3) [ &(50) B(0) ] /(180) [ &(58) B(1) ] /(90) C(x + 1)
+  rule LATERAL @45 : Bk/Bk   # culm, bare below
+    Bk = C when x < 4 -> @culm F ~(2) /(150) C(x + 1)
+  rule FRUITING @50 : Bb/Bb   # branch: a fan of leaves at each joint
+    Bb = B when x < 4 -> F(0.12) [ +(45) @leaf ] [ -(45) @leaf ] [ &(30) @leaf ] B(x + 1)
+  rule SEEDHEAD @55 : 0/0
+  num ANGLE @60 : ab/ab
+    ab = 30
+  num PHYLLO @70 : gb/gb
+    gb = 180
+  num INTERNODE @85 : ib/ib
+    ib = 0.36
+
+chromosome 2
+  organ leaf @10 : Bl/Bl
+    Bl = blade(sf(m=2, n1=0.5, n2=0.9, n3=0.9), length=0.34, width=0.065, curl=-0.3, fold=0.15,
+               color=hsl($LEAF_HUE, 0.5, 0.48))
+  organ culm @15 : Cu/Cu   # one internode; the pinched ends read as the joints
+    Cu = bulb(length=$INTERNODE, radius=0.04, point=0.07, color=hsl($LEAF_HUE, 0.45, 0.42))
+  organ leaflet @20 : pb/pb
+    pb = blade(ellipse(), length=0.1, width=0.02, color=hsl($LEAF_HUE, 0.5, 0.36))
+  organ flower @50 : 0/0
+  num PIGMENT @55 : Pb/Pb
+    Pb = 0.3
+  num PETAL_HUE @58 : yb/yb
+    yb = 0.2
+  organ petal @60 : 0/0
+  num PETALS @65 : fb/fb
+    fb = 0
+  organ fruit @80 : 0/0
+
+chromosome 3
+  num TROPISM @10 : tb/tb
+    tb = 0.08
+  num STEM_W @30 : swb/swb
+    swb = 0.012
+  num RESERVE @20 : rb/rb
+    rb = 6
+  num ALLOC @40 : alb/alb
+    alb = 0.7
+  num SHADE_TOL @50 : stb/stb
+    stb = 0.35
+  num APICAL @70 : apb/apb
+    apb = 0.95
+  num BLOOM_AGE @60 : eb/eb
+    eb = 99
+  num TAPER @80 : kb/kb
+    kb = 0.75
+  num LEAF_HUE @90 : hb/hb
+    hb = 0.25
+
+chromosome 4   # temperature tolerance: subtropical
+  num T_OPT @10 : cb/cb
+    cb = 24
+  num T_WIDTH @30 : nb/nb
+    nb = 12
+  num T_LETHAL_LO @55 : lb/lb
+    lb = -5
+  num T_LETHAL_HI @80 : sb/sb
+    sb = 42
+
+chromosome 5   # roots: a dense fibrous mat
+  rule ROOT_APEX @10 : Rb/Rb
+    Rb = R when depth < $ROOT_DEPTH -> F(0.05) [ &(80) Q ] /(72) [ &(80) Q ] /(72) [ &(80) Q ] /(72) R
+  rule ROOT_LATERAL @30 : Lb/Lb
+    Lb = Q when x < 4 -> F(0.06) ~(20) [ &(40) @rootlet ] [ ^(40) @rootlet ] Q(x + 1)
+  organ rootlet @50 : rb/rb
+    rb = rootlet(length=0.05, radius=0.0025, hairs=3)
+  num ROOT_DEPTH @60 : db/db
+    db = 0.35
+  num ROOT_ALLOC @70 : ab/ab
+    ab = 0.25
+  num ROOT_GRAV @85 : gb/gb
+    gb = 0.15
+`;
+
+// A columnar cactus: a ribbed, spined trunk with two arms that turn upward, each crowned
+// with a pale flower. The body is all green stem; it has no leaves.
+export const PILLARSPINE = `plant "Pillarspine"
+axiom A
+root R
+
+chromosome 1
+  rule BLOOM @5 : Cb/Cb   # a flower crowns the trunk once it stops
+    Cb dom 2 = A when step >= $BLOOM_AGE -> F(0.16) @flower
+  rule APEX @20 : Ca/Ca   # trunk segments; two arms sprout part way up
+    Ca = A when step == 3 -> @leaf F(0.3) [ &(85) G(0) ] /(180) [ &(85) G(2) ] A
+  rule CROWN @40 : Cc/Cc
+    Cc = A -> @leaf F(0.3) A
+  rule LATERAL @45 : Cg/Cg   # an arm: out, then up
+    Cg = G when x < 6 -> @leaf(0.72) F(0.22) ^(22) G(x + 1)
+  rule FRUITING @50 : Cf/Cf
+    Cf = G when x >= 6 -> F(0.12) @flower(0.8)
+  rule SEEDHEAD @55 : 0/0
+  num ANGLE @60 : ac/ac
+    ac = 30
+  num PHYLLO @70 : gc/gc
+    gc = 137.5
+  num INTERNODE @85 : ic/ic
+    ic = 0.3
+
+chromosome 2
+  organ leaf @10 : Sg/Sg   # a ribbed stem segment, spined along each rib
+    Sg = group(bulb(length=0.44, radius=0.19, point=0.12, ribs=11, ribdepth=0.1, color=hsl($LEAF_HUE, 0.35, 0.36)),
+               offset(whorl(leaflet, n=11, tilt=90), y=0.15), offset(whorl(leaflet, n=11, tilt=90, twist=4), y=0.3))
+  organ leaflet @20 : Sp/Sp   # a spine
+    Sp = spike(length=0.25, radius=0.006, color=hsl(0.12, 0.25, 0.8))
+  organ flower @50 : Cw/Cw
+    Cw = group(whorl(petal, n=$PETALS, tilt=50), whorl(scale(petal, s=0.8), n=$PETALS, tilt=30, twist=20),
+               bulb(length=0.06, radius=0.04, color=hsl(0.14, 0.85, 0.6)))
+  num PIGMENT @55 : Pc/Pc
+    Pc dom 2 = 0.25
+  num PETAL_HUE @58 : yc/yc
+    yc = 0.95
+  organ petal @60 : Wp/Wp
+    Wp = blade(sf(m=1, n1=0.6, n2=0.8, n3=0.8), length=0.13, width=0.08, curl=-0.1,
+               color=hsl($PETAL_HUE, $PIGMENT, 0.86))
   num PETALS @65 : fc/fc
-    fc = 8
-  organ fruit @80 : Pd/Pd
-    Pd = bulb(length=0.3, radius=0.07, point=0.7, ribs=6, ribdepth=0.2, color=hsl(0.2, 0.5, 0.4))
+    fc = 10
+  organ fruit @80 : 0/0
 
 chromosome 3
   num TROPISM @10 : tc/tc
     tc = 0.3
   num STEM_W @30 : swc/swc
-    swc = 0.06
+    swc = 0.03
   num RESERVE @20 : rc/rc
-    rc = 4.5
+    rc = 10
   num ALLOC @40 : alc/alc
-    alc = 0.8
+    alc = 0.9
   num SHADE_TOL @50 : stc/stc
-    stc = 0.3
+    stc = 0.05
   num APICAL @70 : apc/apc
-    apc = 0.7
+    apc = 1
   num BLOOM_AGE @60 : ec/ec
-    ec = 7
+    ec = 9
   num TAPER @80 : kc/kc
-    kc = 0.6
+    kc = 0.75
   num LEAF_HUE @90 : hc/hc
-    hc = 0.4
+    hc = 0.36
 
-chromosome 4   # temperature tolerance: generalist
+chromosome 4   # temperature tolerance: desert
   num T_OPT @10 : cc/cc
-    cc = 19
+    cc = 30
   num T_WIDTH @30 : nc/nc
     nc = 14
-  num T_LETHAL_LO @55 : hc/hc
-    hc = 0
+  num T_LETHAL_LO @55 : lc/lc
+    lc = -3
   num T_LETHAL_HI @80 : sc/sc
-    sc = 38
+    sc = 52
 
-chromosome 5   # roots: medium depth, many laterals
+chromosome 5   # roots: shallow and wide, to catch brief rain
   rule ROOT_APEX @10 : Rc/Rc
-    Rc = R when depth < $ROOT_DEPTH -> F(0.08) [ &(65) Q ] /(90) [ &(65) Q ] /(90) R
+    Rc = R when depth < $ROOT_DEPTH -> F(0.06) [ &(85) Q ] /(72) [ &(85) Q ] /(72) [ &(85) Q ] /(72) [ &(85) Q ] R
   rule ROOT_LATERAL @30 : Lc/Lc
-    Lc = Q when x < 3 -> F(0.06) [ &(45) @rootlet ] Q(x + 1)
-  organ rootlet @50 : hc/hc
-    hc = rootlet(length=0.06, radius=0.003, hairs=2.5)
+    Lc = Q when x < 6 -> F(0.12) ~(10) [ &(35) @rootlet ] Q(x + 1)
+  organ rootlet @50 : rc/rc
+    rc = rootlet(length=0.06, radius=0.003, hairs=2)
   num ROOT_DEPTH @60 : dc/dc
-    dc = 0.5
+    dc = 0.25
   num ROOT_ALLOC @70 : ac/ac
-    ac = 0.18
+    ac = 0.2
   num ROOT_GRAV @85 : gc/gc
-    gc = 0.25
+    gc = 0.05
 `;
 
-export const STARTERS = [FERNWORT, SPIREBUSH, STARCUP];
+export const STARTERS = [FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE];
