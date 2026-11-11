@@ -3,6 +3,7 @@
 // For exported pictures: ?seed=N, ?bg=scene|paper|clear (&paper=%23rrggbb), ?ui=0 hides the caption and
 // button, ?turn=DEG and ?lift=DEG orbit the opening view, ?zoom=K moves in, ?focus=head frames the top,
 // ?fov=DEG narrows the lens (keeping the framing), ?pan=F slides the plant across the frame (F of the view's half-width; + puts it on the left),
+// ?podl=URL shows a genome file in place of the ?plant starter, ?style=flat draws clean flat colour,
 // ?set=GENE:VALUE,GENE:VALUE replaces those num genes of the ?plant shown (e.g. set=PETAL_HUE:0.8).
 // The Look panel (top left) sets PETAL_HUE and INK, with presets, and writes them back as ?set=.
 import * as THREE from 'three';
@@ -62,15 +63,18 @@ function setGene(g: Genome, name: string, value: string) {
 }
 // ?plant=1..8 picks the starter shown first (handy for screenshots); ?set= changes only that plant
 const first = Math.max(0, Math.min(genomes.length - 1, (Number(Q.get('plant')) || 1) - 1));
-for (const kv of (Q.get('set') ?? '').split(',').filter(Boolean)) {
-  const [k, v] = kv.split(':');
-  if (k && v && Number.isFinite(+v)) setGene(genomes[first], k, v);
+function applySets() {
+  for (const kv of (Q.get('set') ?? '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split(':');
+    if (k && v && Number.isFinite(+v)) setGene(genomes[first], k, v);
+  }
 }
 let mesh: THREE.Group | null = null;
 let rootMesh: THREE.Mesh | null = null;
 let current = 0, seed = num('seed', 1), showRoots = false;
 const bgKind = (['scene', 'paper', 'clear'] as const).find(k => k === Q.get('bg')) ?? 'scene';
 plate.setBackdrop(bgKind, Q.get('paper') ?? '#f2e9d4');
+plate.setFlat(Q.get('style') === 'flat');
 if (bgKind === 'clear') document.documentElement.style.background = document.body.style.background = 'transparent';
 if (Q.get('ui') === '0') { caption.hidden = true; rootsButton.hidden = true; }
 
@@ -238,6 +242,11 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 't') setRoots(!showRoots);
 });
 
-resize();
-show(first);
-tick();
+async function start() {
+  if (Q.has('podl')) genomes[first] = parseGenome(await (await fetch(Q.get('podl')!)).text());
+  applySets();
+  resize();
+  show(first);
+  tick();
+}
+start();

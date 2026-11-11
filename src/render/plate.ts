@@ -18,6 +18,7 @@ uniform vec3 ink, sunView, sunWorld;
 uniform float inkWeight;   // the plant's outline: 1 a full line, 0 none (the INK gene)
 uniform float softShade;   // 0 the full cool shadow paint, toward 1 the shadow nears the sunlit colour (the SOFT_SHADE gene)
 uniform float yellowWash;  // 1 the gamboge tint on every colour, 0 only on greens and yellows (the YELLOW_WASH gene)
+uniform float flatStyle;        // 1: no paper grain, bleed or wobble, for a clean mark (?style=flatStyle)
 uniform vec4 backdrop;     // a = 0 the landscape, 1 plain paper of colour rgb, 2 transparent (for exports)
 uniform float inkTint;     // its colour: 0 black ink, 1 a dark shade of the wash under it (the INK_TINT gene)
 uniform sampler2D tCrownShade;     // shadows of tree crowns on the field, centred on the origin
@@ -317,11 +318,11 @@ void main() {
                                max(mask(vUv + vec2(0.0, r3.y)), mask(vUv - vec2(0.0, r3.y)))));
   if (nearPlant > 0.0) {
     vec3 pap = vec3(0.949, 0.914, 0.831);
-    pap *= 0.965 + 0.05 * fbm2(frag / 1.6);                      // fibres
-    pap *= 0.975 + 0.035 * fbm2(frag / 260.0 + 3.1);             // mottling
+    pap *= mix(0.965 + 0.05 * fbm2(frag / 1.6), 0.99, flatStyle);                      // fibres
+    pap *= mix(0.975 + 0.035 * fbm2(frag / 260.0 + 3.1), 0.99, flatStyle);             // mottling
 
     // watercolour wash, misregistered a little from the engraved line
-    vec2 bleed = (vec2(fbm2(frag / 55.0), fbm2(frag / 55.0 + 7.3)) - 0.5) * 5.0 * px * texel;
+    vec2 bleed = (vec2(fbm2(frag / 55.0), fbm2(frag / 55.0 + 7.3)) - 0.5) * 5.0 * (1.0 - flatStyle) * px * texel;
     vec2 uvW = vUv + bleed;
     vec4 cW = texture2D(tColor, uvW);
     float mW = mask(uvW);
@@ -332,7 +333,7 @@ void main() {
     alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);                // transparent washes over cream paper
     vec3 sunP = inSun(alb, 1.15);
     vec3 pig = mix(mix(inShade(alb), sunP * 0.82, softShade), sunP, sunSide(cW.a, wob));   // warm sun, cool teal shadow
-    float gran = fbm2(frag / 2.4 + 1.7);
+    float gran = mix(fbm2(frag / 2.4 + 1.7), 0.75, flatStyle);   // flatStyle: an even wash
     float density = mW * (0.62 + 0.4 * gran) * (1.0 - 0.45 * smoothstep(0.75, 1.0, 0.3 + 0.7 * cW.a));
     float rim = 0.0;                                            // pigment pools at the drying edge
     for (int i = 0; i < 4; i++) {
@@ -341,15 +342,15 @@ void main() {
     }
     float pool = mW * (1.0 - rim / 4.0);
     vec3 pl = mix(pap, pig * (0.92 + 0.08 * pap), clamp(density, 0.0, 1.0));
-    pl *= 1.0 - 0.3 * pool;
+    pl *= 1.0 - 0.3 * pool * (1.0 - flatStyle);
     col = mix(bg, pl, mW);   // the landscape is left alone outside the wash
 
     // ink
     float shC = 0.3 + 0.7 * texture2D(tColor, vUv).a;
-    vec2 wob2 = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * px * texel;
+    vec2 wob2 = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * (1.0 - flatStyle) * px * texel;
     float weight = 0.75 + 0.9 * (1.0 - shC) * m;                // heavier line on the shadow side
     float line = edges(vUv + wob2, weight * mix(0.6, 1.0, clamp(inkWeight, 0.0, 1.0)) * px * texel);   // a lighter line is thinner too
-    line *= 0.75 + 0.25 * smoothstep(0.2, 0.55, noise(frag / 5.0));
+    line *= mix(0.75 + 0.25 * smoothstep(0.2, 0.55, noise(frag / 5.0)), 1.0, flatStyle);
 
     vec3 lineCol = mix(ink, pig * 0.42, inkTint);
     col = mix(col, lineCol, clamp(line * inkWeight, 0.0, 1.0));
@@ -401,7 +402,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
       tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, tGrass: { value: grassRT.texture }, tGrassDepth: { value: grassRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 400 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
-      ink: { value: new THREE.Color() }, inkWeight: { value: 1 }, inkTint: { value: 0 }, backdrop: { value: new THREE.Vector4(0, 0, 0, 0) }, yellowWash: { value: 1 }, softShade: { value: 0 }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
+      ink: { value: new THREE.Color() }, inkWeight: { value: 1 }, inkTint: { value: 0 }, backdrop: { value: new THREE.Vector4(0, 0, 0, 0) }, flatStyle: { value: 0 }, yellowWash: { value: 1 }, softShade: { value: 0 }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
       tCrownShade: { value: null }, crownExtent: { value: 1 },
       invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() }, viewProj: { value: new THREE.Matrix4() },
     },
@@ -429,6 +430,8 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     setYellowWash(w: number) { U.yellowWash.value = Math.min(1, Math.max(0, w)); },
     // the outline's colour: 0 black ink, 1 a dark shade of the plant's own colour
     setInkTint(t: number) { U.inkTint.value = Math.min(1, Math.max(0, t)); },
+    // 1: draw the plant as clean flat colour (no grain, bleed or wobble), for a logo
+    setFlat(on: boolean) { U.flatStyle.value = on ? 1 : 0; },
     // what is behind the plant: 'scene' the landscape, 'paper' plain paper of colour css, 'clear' nothing
     setBackdrop(kind: 'scene' | 'paper' | 'clear', css = '#f2e9d4') {
       const c = new THREE.Color().setStyle(css, THREE.SRGBColorSpace).convertLinearToSRGB();

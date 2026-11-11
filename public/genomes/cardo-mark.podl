@@ -1,0 +1,48 @@
+# Cardo mark: the Cardo thistle's head reduced to a logo.
+# The "Simpler" head (about 38 broad strands, 41 scales), with every part in
+# even rings (whorl) in place of the plant's natural spirals, so it reads as a
+# designed, symmetric mark. No leaves, no roots, flat light.
+# View it with ?podl=genomes/cardo-mark.podl (add &style=flat for clean colour).
+plant "Cardo mark"
+axiom A
+
+chromosome 1
+  rule BLOOM @5 : Mb/Mb
+    Mb = A -> F(0.01) @head(4)   # almost no stem: only the head
+
+chromosome 2
+  organ bract @40 : Mt/Mt   # a big flat scale with a pale rim
+    Mt = blade(ellipse(), length=0.03, width=0.021, curl=0.04, color=hsl(0.3, 0.3, 0.32), edge=hsl(0.2, 0.25, 0.62))
+  organ scales @42 : Ms/Ms   # four even rings of scales hugging a ball of radius 0.032
+    Ms = group(whorl(offset(tilt(bract, deg=-84), y=0.03), n=7, tilt=158),
+               whorl(offset(tilt(bract, deg=-84), y=0.031), n=10, tilt=130, twist=18),
+               whorl(offset(tilt(bract, deg=-84), y=0.032), n=12, tilt=104),
+               whorl(offset(tilt(bract, deg=-84), y=0.032), n=12, tilt=80, twist=15))
+  organ floret @45 : Mf/Mf   # a broad strand curving up and in
+    Mf = spike(length=0.065, radius=0.02, bend=-0.22, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+  organ sweep @46 : Mw/Mw   # a long side strand sweeping up to the height of the middle
+    Mw = spike(length=0.095, radius=0.02, bend=-0.75, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+  organ brush @47 : Mr/Mr   # even rings, widest at the bottom, one strand in the middle
+    Mr = group(whorl(floret, n=10, tilt=90), whorl(sweep, n=10, tilt=88, twist=18), whorl(sweep, n=8, tilt=72),
+               whorl(floret, n=6, tilt=48, twist=30), whorl(floret, n=3, tilt=20, twist=60), whorl(floret, n=1, tilt=0))
+  organ head @50 : Mh/Mh   # the scaly ball with the brush on top
+    Mh = offset(group(offset(bulb(length=0.064, radius=0.03, color=hsl(0.25, 0.3, 0.3)), y=-0.032),
+                      scales, offset(brush, y=0.02)), y=0.032)
+  num PIGMENT @55 : Mp/Mp
+    Mp = 0.8
+  num PETAL_HUE @58 : Mu/Mu   # bluer than it looks: flat sunlight warms it to lavender
+    Mu = 0.7
+
+chromosome 3
+  num TROPISM @10 : Mo/Mo   # straight up
+    Mo = 0
+  num STEM_W @30 : Mx/Mx
+    Mx = 0.018
+  num INK @95 : Mi/Mi   # a full outline...
+    Mi = 1
+  num INK_TINT @97 : Mn/Mn   # ...in the plant's own dark colours
+    Mn = 1
+  num YELLOW_WASH @98 : My/My
+    My = 0
+  num SOFT_SHADE @99 : Ms2/Ms2   # flat light
+    Ms2 = 1
