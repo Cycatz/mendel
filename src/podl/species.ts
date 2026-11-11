@@ -648,9 +648,9 @@ chromosome 2
     Cs = group(spiral(offset(tilt(bract, deg=-78), y=0.031), n=46, height=0, tilt=155, shrink=1),
                spiral(offset(tilt(bract, deg=-80), y=0.032), n=38, height=0, tilt=84, shrink=1))
   organ floret @45 : Cf/Cf   # a thin strand curving up and in (a negative bend), so the brush is a dome
-    Cf = spike(length=0.09, radius=0.005, bend=-0.22, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+    Cf = spike(length=0.065, radius=0.005, bend=-0.22, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
   organ sweep @46 : Cw/Cw   # a long side strand that sweeps up to almost the height of the middle
-    Cw = spike(length=0.13, radius=0.005, bend=-0.75, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+    Cw = spike(length=0.095, radius=0.005, bend=-0.75, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
   organ brush @47 : Cr/Cr   # the soft lavender brush, a round dome
     Cr = group(spiral(floret, n=64, height=0.012, tilt=92, shrink=0.996),   # spirals, not whorls: one even tuft, no rings
                spiral(sweep, n=80, height=0.01, tilt=98, shrink=1),   # full sides, curving up
