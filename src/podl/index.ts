@@ -5,4 +5,4 @@ export * from './organs';
 export * from './rng';
 export * from './develop';
 export * from './mesh';
-export { STARTERS, FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE, SWEETRIND } from './species';
+export { STARTERS, FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE, SWEETRIND, CARDO } from './species';

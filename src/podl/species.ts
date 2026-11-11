@@ -616,4 +616,112 @@ chromosome 5   # roots: a taproot with wide laterals
     gm = 0.3
 `;
 
-export const STARTERS = [FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE, SWEETRIND];
+// A cardoon: silver lobed leaves and a spiny thistle head with a purple tuft.
+export const CARDO = `plant "Cardo"
+axiom A
+root R
+
+chromosome 1
+  rule BLOOM @5 : Cd/Cd
+    Cd dom 2 = A when step >= $BLOOM_AGE -> F(0.3) @head(4)   # the head faces straight up
+  rule APEX @20 : Sa/Sa
+    Sa = A -> F ~(4) [ &(58) @leaf(mix(1.8, 0.5, step / $BLOOM_AGE)) ] /($PHYLLO) A   # big leaves low, small ones up the stem
+  rule LATERAL @45 : 0/0
+  rule FRUITING @50 : 0/0
+  rule SEEDHEAD @55 : 0/0
+  num ANGLE @60 : au/au
+    au = 35
+  num PHYLLO @70 : gu/gu
+    gu = 137.5
+  num INTERNODE @85 : iu/iu
+    iu = 0.15
+
+chromosome 2
+  organ leaf @10 : Cl/Cl   # deeply lobed, wavy, silver-grey
+    Cl = blade(lobed(n=11, depth=0.35), length=0.55, width=0.28, curl=-0.2, fold=0.25, wave=0.6,
+               color=hsl(0.38, 0.15, 0.55), edge=hsl(0.38, 0.1, 0.75))
+  organ leaflet @20 : pu/pu
+    pu = blade(ellipse(), length=0.1, width=0.05, color=hsl($LEAF_HUE, 0.5, 0.33))
+  organ bract @40 : Cb/Cb   # a small flat scale with a pale rim
+    Cb = blade(ellipse(), length=0.024, width=0.015, curl=0.04, color=hsl(0.3, 0.3, 0.32), edge=hsl(0.2, 0.25, 0.62))
+  organ scales @42 : Cs/Cs   # scales lying flat on a ball of radius 0.032, in spirals (rings looked like a pineapple)
+    Cs = group(spiral(offset(tilt(bract, deg=-78), y=0.031), n=46, height=0, tilt=155, shrink=1),
+               spiral(offset(tilt(bract, deg=-80), y=0.032), n=38, height=0, tilt=84, shrink=1))
+  organ floret @45 : Cf/Cf   # a thin strand curving up and in (a negative bend), so the brush is a dome
+    Cf = spike(length=0.09, radius=0.005, bend=-0.22, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+  organ sweep @46 : Cw/Cw   # a long side strand that sweeps up to almost the height of the middle
+    Cw = spike(length=0.13, radius=0.005, bend=-0.75, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+  organ brush @47 : Cr/Cr   # the soft lavender brush, a round dome
+    Cr = group(spiral(floret, n=64, height=0.012, tilt=92, shrink=0.996),   # spirals, not whorls: one even tuft, no rings
+               spiral(sweep, n=80, height=0.01, tilt=98, shrink=1),   # full sides, curving up
+               spiral(sweep, n=60, height=0.01, tilt=84, shrink=1),
+               spiral(floret, n=44, height=0.012, tilt=52, shrink=1),
+               spiral(floret, n=26, height=0.01, tilt=22, shrink=1))   # enough in the middle, or the top looks sunken
+  organ head @50 : Ch/Ch   # a scaly ball with a purple brush on top
+    Ch = offset(group(offset(bulb(length=0.064, radius=0.03, color=hsl(0.25, 0.3, 0.3)), y=-0.032),
+                      scales, offset(brush, y=0.02)), y=0.032)
+  num PIGMENT @55 : Pu/Pu
+    Pu dom 2 = 0.5
+  num PETAL_HUE @58 : yu/yu
+    yu = 0.87   # mauve
+  organ petal @60 : Ra/Ra
+    Ra = blade(sf(m=1, n1=0.6, n2=0.9, n3=0.9), length=0.24, width=0.07, curl=-0.12,
+               color=hsl($PETAL_HUE, $PIGMENT, 0.55))
+  num PETALS @65 : fu/fu
+    fu = 21
+  organ fruit @80 : 0/0
+
+chromosome 3
+  num TROPISM @10 : tu/tu
+    tu = 0.25
+  num STEM_W @30 : swu/swu
+    swu = 0.018
+  num RESERVE @20 : ru/ru
+    ru = 4
+  num ALLOC @40 : alu/alu
+    alu = 0.75
+  num SHADE_TOL @50 : stu/stu
+    stu = 0.1
+  num APICAL @70 : apu/apu
+    apu = 1
+  num BLOOM_AGE @60 : eu/eu
+    eu = 7
+  num TAPER @80 : ku/ku
+    ku = 0.6
+  num LEAF_HUE @90 : hu/hu
+    hu = 0.38
+  num INK @95 : ik/ik   # a light, thin outline, so the brush looks calm...
+    ik = 0.45
+  num INK_TINT @97 : it/it   # ...in the plant's own dark colours, not black
+    it = 1
+  num YELLOW_WASH @98 : yw/yw   # keep the brush lavender in sunlight
+    yw = 0
+  num SOFT_SHADE @99 : ss/ss   # a mellow, pastel shadow
+    ss = 0.5
+
+chromosome 4   # temperature tolerance: a summer annual
+  num T_OPT @10 : cu/cu
+    cu = 24
+  num T_WIDTH @30 : nu/nu
+    nu = 10
+  num T_LETHAL_LO @55 : lu/lu
+    lu = 1
+  num T_LETHAL_HI @80 : su/su
+    su = 40
+
+chromosome 5   # roots: a taproot with short laterals
+  rule ROOT_APEX @10 : Ru/Ru
+    Ru = R when depth < $ROOT_DEPTH -> F(0.09) [ &(60) Q ] /(137.5) R
+  rule ROOT_LATERAL @30 : Lu/Lu
+    Lu = Q when x < 3 -> F(0.06) [ &(40) @rootlet ] Q(x + 1)
+  organ rootlet @50 : ru/ru
+    ru = rootlet(length=0.06, radius=0.003, hairs=2)
+  num ROOT_DEPTH @60 : du/du
+    du = 0.7
+  num ROOT_ALLOC @70 : au/au
+    au = 0.25
+  num ROOT_GRAV @85 : gu/gu
+    gu = 0.4
+`;
+
+export const STARTERS = [FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE, SWEETRIND, CARDO];
