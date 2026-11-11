@@ -187,6 +187,10 @@ export function resolveLocus(l: Locus): Resolution {
 
 // Defaults for the num genes the turtle reads. Any other $GENE that a genome doesn't define reads 0.
 export const GENE_DEFAULTS: Record<string, number> = {
+  // the plate's outline round the plant (weight; 0 black to 1 the plant's own dark colour); read by the viewer, not the turtle
+  INK: 1, INK_TINT: 0,
+  SOFT_SHADE: 0, // the plate's shadow on the plant: 0 the full cool shadow, toward 1 close to the sunlit colour
+  YELLOW_WASH: 1, // the plate's gamboge tint: 1 on every colour, 0 only on greens and yellows
   ANGLE: 30, PHYLLO: 137.5, INTERNODE: 0.5, STEM_W: 0.05, TROPISM: 0.15, TAPER: 0.7,
   // roots: starting thickness, pull toward gravity, how deep the starters' root rules grow
   ROOT_W: 0.012, ROOT_GRAV: 0.25, ROOT_DEPTH: 0.5,

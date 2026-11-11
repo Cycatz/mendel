@@ -15,6 +15,11 @@ uniform sampler2D tColor, tNormal, tDepth, tGround, tGroundDepth, tGrass, tGrass
 uniform vec2 res;
 uniform float px, near, far, gNear, gFar;
 uniform vec3 ink, sunView, sunWorld;
+uniform float inkWeight;   // the plant's outline: 1 a full line, 0 none (the INK gene)
+uniform float softShade;   // 0 the full cool shadow paint, toward 1 the shadow nears the sunlit colour (the SOFT_SHADE gene)
+uniform float yellowWash;  // 1 the gamboge tint on every colour, 0 only on greens and yellows (the YELLOW_WASH gene)
+uniform vec4 backdrop;     // a = 0 the landscape, 1 plain paper of colour rgb, 2 transparent (for exports)
+uniform float inkTint;     // its colour: 0 black ink, 1 a dark shade of the wash under it (the INK_TINT gene)
 uniform sampler2D tCrownShade;     // shadows of tree crowns on the field, centred on the origin
 uniform float crownExtent;         // half the width the crown-shadow texture covers, m
 uniform mat4 invProj, camWorld, viewProj;
@@ -298,6 +303,10 @@ void main() {
       bg = mix(bg, ink, line);
     }
   }
+  if (backdrop.a > 0.5) {   // a specimen on plain paper: no sky, field or trees
+    bg = backdrop.rgb * (0.965 + 0.05 * fbm2(frag / 1.6)) * (0.975 + 0.035 * fbm2(frag / 260.0 + 3.1));
+  }
+  float alpha = 1.0 - step(1.5, backdrop.a);
   vec3 col = bg;
 
   // ---- the plant: a hand-coloured engraving. A wash over cream paper that bleeds a little past
@@ -318,9 +327,11 @@ void main() {
     float mW = mask(uvW);
     vec3 alb = pow(max(cW.rgb, 0.0), vec3(1.0 / 2.2));
     alb = mix(vec3(lum(alb)), alb, 0.95);                       // lively body colour
-    alb = alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0);  // yellow, like gamboge-mixed greens
+    float yw = mix(smoothstep(-0.02, 0.08, alb.g - alb.b), 1.0, yellowWash);   // purples keep their blue when 0
+    alb = mix(alb, alb * vec3(1.18, 1.1, 0.62) + vec3(0.08, 0.07, 0.0), yw);  // yellow, like gamboge-mixed greens
     alb = mix(alb, vec3(0.96, 0.93, 0.7), 0.15);                // transparent washes over cream paper
-    vec3 pig = mix(inShade(alb), inSun(alb, 1.15), sunSide(cW.a, wob));   // warm sun, cool teal shadow
+    vec3 sunP = inSun(alb, 1.15);
+    vec3 pig = mix(mix(inShade(alb), sunP * 0.82, softShade), sunP, sunSide(cW.a, wob));   // warm sun, cool teal shadow
     float gran = fbm2(frag / 2.4 + 1.7);
     float density = mW * (0.62 + 0.4 * gran) * (1.0 - 0.45 * smoothstep(0.75, 1.0, 0.3 + 0.7 * cW.a));
     float rim = 0.0;                                            // pigment pools at the drying edge
@@ -337,18 +348,20 @@ void main() {
     float shC = 0.3 + 0.7 * texture2D(tColor, vUv).a;
     vec2 wob2 = (vec2(noise(frag / 9.0), noise(frag / 9.0 + 19.1)) - 0.5) * 1.4 * px * texel;
     float weight = 0.75 + 0.9 * (1.0 - shC) * m;                // heavier line on the shadow side
-    float line = edges(vUv + wob2, weight * px * texel);
+    float line = edges(vUv + wob2, weight * mix(0.6, 1.0, clamp(inkWeight, 0.0, 1.0)) * px * texel);   // a lighter line is thinner too
     line *= 0.75 + 0.25 * smoothstep(0.2, 0.55, noise(frag / 5.0));
 
-    col = mix(col, ink, clamp(line, 0.0, 1.0));
+    vec3 lineCol = mix(ink, pig * 0.42, inkTint);
+    col = mix(col, lineCol, clamp(line * inkWeight, 0.0, 1.0));
 
     // whatever the ground pass has in front of the plant: the field over its roots (thinly, so
     // they show through), or a tree
     float behind = mW * gM * step(gD + 0.002, linDepth(uvW));
-    col = mix(col, bg, behind * mix(0.6, 1.0, isT));
+    col = mix(col, bg, behind * mix(0.6, 1.0, isT) * (1.0 - step(0.5, backdrop.a)));
+    if (backdrop.a > 1.5) alpha = clamp(max(mW, line * inkWeight), 0.0, 1.0);
   }
 
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col * alpha, alpha);   // premultiplied
 }`;
 
 export type Plate = ReturnType<typeof createPlate>;
@@ -388,7 +401,7 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
       tColor: { value: colorRT.texture }, tNormal: { value: normalRT.texture }, tDepth: { value: colorRT.depthTexture },
       tGround: { value: groundRT.texture }, tGroundDepth: { value: groundRT.depthTexture }, tGrass: { value: grassRT.texture }, tGrassDepth: { value: grassRT.depthTexture }, gNear: { value: 0.05 }, gFar: { value: 400 },
       res: { value: new THREE.Vector2() }, px: { value: 1 }, near: { value: 0.05 }, far: { value: 400 },
-      ink: { value: new THREE.Color() }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
+      ink: { value: new THREE.Color() }, inkWeight: { value: 1 }, inkTint: { value: 0 }, backdrop: { value: new THREE.Vector4(0, 0, 0, 0) }, yellowWash: { value: 1 }, softShade: { value: 0 }, sunView: { value: new THREE.Vector3(0, 1, 0) }, sunWorld: { value: new THREE.Vector3(0, 1, 0) },
       tCrownShade: { value: null }, crownExtent: { value: 1 },
       invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() }, viewProj: { value: new THREE.Matrix4() },
     },
@@ -407,6 +420,19 @@ export function createPlate(renderer: THREE.WebGLRenderer) {
     // the colour is given as a CSS hex string in sRGB and used as-is by the composite
     setInk(inkCss: string) {
       U.ink.value.setStyle(inkCss, THREE.SRGBColorSpace).convertLinearToSRGB();
+    },
+    // how heavy the ink outline round the plant is: 1 full, 0 none
+    setInkWeight(w: number) { U.inkWeight.value = Math.max(0, w); },
+    // how gentle the plant's shadow is: 0 the full cool shadow, toward 1 close to the sunlit colour
+    setSoftShade(s: number) { U.softShade.value = Math.min(1, Math.max(0, s)); },
+    // the plate's yellow wash: 1 on every colour, 0 only on greens and yellows
+    setYellowWash(w: number) { U.yellowWash.value = Math.min(1, Math.max(0, w)); },
+    // the outline's colour: 0 black ink, 1 a dark shade of the plant's own colour
+    setInkTint(t: number) { U.inkTint.value = Math.min(1, Math.max(0, t)); },
+    // what is behind the plant: 'scene' the landscape, 'paper' plain paper of colour css, 'clear' nothing
+    setBackdrop(kind: 'scene' | 'paper' | 'clear', css = '#f2e9d4') {
+      const c = new THREE.Color().setStyle(css, THREE.SRGBColorSpace).convertLinearToSRGB();
+      U.backdrop.value.set(c.r, c.g, c.b, kind === 'scene' ? 0 : kind === 'paper' ? 1 : 2);
     },
     // world-space direction toward the sun, for the white edge strokes
     setSun(dir: THREE.Vector3) { sunWorld.copy(dir).normalize(); U.sunWorld.value.copy(sunWorld); },

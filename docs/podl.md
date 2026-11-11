@@ -150,6 +150,10 @@ The turtle reads these genes. Their defaults are:
 | `ROOT_W` | 0.012 | Starting root width. |
 | `ROOT_GRAV` | 0.25 | How strongly roots bend toward gravity. |
 | `ROOT_DEPTH` | 0.5 | Conventional depth limit, read by the starters' root rules. |
+| `INK` | 1 | Weight of the ink outline the viewer draws round the plant. 0 draws none; a lighter line is also thinner. |
+| `INK_TINT` | 0 | Colour of that outline: 0 black ink, 1 a dark shade of the plant's own colour. |
+| `SOFT_SHADE` | 0 | How gentle the viewer's shadow on the plant is: 0 the full cool shadow, toward 1 close to the sunlit colour. |
+| `YELLOW_WASH` | 1 | The viewer's yellow (gamboge) tint: 1 on every colour, 0 only on greens and yellows, so purples stay purple. |
 
 Every other name is free. Genomes may define genes for their own use (`BLOOM_AGE`, `PETALS`) or for a host simulation (`RESERVE`, `T_OPT`, …). The PODL package itself ignores those.
 
