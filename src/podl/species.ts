@@ -271,13 +271,13 @@ root R
 chromosome 1
   rule BLOOM @5 : 0/0
   rule APEX @20 : Vt/Vt   # the trunk
-    Vt = A when step < 3 -> F(0.4) ~(5) A
+    Vt = A when step < 3 -> F(0.4) ~(2) A   # staked straight
   rule CROWN @40 : Vc/Vc   # splits into two cordons
     Vc = A -> [ &(88) C(0) ] /(180) [ &(88) C(0) ]
   rule LATERAL @45 : Vk/Vk   # cordon: a cane and a bunch at each spur
-    Vk = C when x < 4 -> F(0.32) ~(4) [ ^(75) S(0) ] [ &(90) F(0.05) @fruit ] C(x + 1)
-  rule FRUITING @50 : Vs/Vs   # cane: alternate leaves, each opposite a tendril
-    Vs = S when x < 6 -> F(0.16) ~(12) [ +(60) @leaf ] [ -(50) @leaflet ] /(180) S(x + 1)
+    Vk = C when x < 4 -> F(0.32) ~(3) [ ^(68) ~(6) S(0) ] [ &(90) F(0.05) @fruit ] C(x + 1)
+  rule FRUITING @50 : Vs/Vs   # cane: arching, with alternate leaves, each opposite a tendril
+    Vs = S when x < 6 -> F(0.17) ~(7) &(5) [ +(60) @leaf ] [ -(50) @leaflet ] F(0.17) ~(7) &(5) [ -(60) @leaf ] [ +(50) @leaflet ] S(x + 2)
   rule SEEDHEAD @55 : 0/0
   num ANGLE @60 : av/av
     av = 40
@@ -288,8 +288,8 @@ chromosome 1
 
 chromosome 2
   organ leaf @10 : Gl/Gl
-    Gl = blade(lobed(n=5, depth=0.28), length=0.2, width=0.22, curl=-0.2, fold=0.2, wave=0.2, stalk=0.07,
-               color=hsl($LEAF_HUE, 0.45, 0.32))
+    Gl = blade(lobed(n=5, depth=0.12), length=0.3, width=0.32, curl=-0.25, fold=0.15, wave=0.45, stalk=0.08,
+               color=hsl($LEAF_HUE, 0.45, 0.36))   # broad, shallowly lobed, toothed
   organ leaflet @20 : Td/Td   # a tendril
     Td = spike(length=0.14, radius=0.003, bend=3, color=hsl(0.22, 0.4, 0.45))
   organ flower @50 : 0/0
@@ -526,4 +526,94 @@ chromosome 5   # roots: shallow and wide, to catch brief rain
     gc = 0.05
 `;
 
-export const STARTERS = [FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE];
+
+// A melon: runners that crawl over the ground, with lobed leaves, tendrils, yellow flowers
+// and ribbed melons resting on the soil. The runners are laid exactly flat with no pull
+// upward, and meander only sideways (a yaw, not ~, which also pitches), so they stay down.
+export const SWEETRIND = `plant "Sweetrind"
+axiom A
+root R
+
+chromosome 1
+  rule BLOOM @5 : Mf/Mf   # every fourth node flowers
+    Mf = S when x % 4 == 1 and x < 12 -> F +(16 * sin(x * 0.9) + 20 * rand() - 10) [ ^(80) @flower ] [ -(55) ^(45) @leaf ] S(x + 1)
+  rule APEX @20 : Ma/Ma   # four runners fan out from the crown, pressed flat
+    Ma = A -> F(0.015) [ &(90) S(0) ] /(90) [ &(90) S(2) ] /(90) [ &(90) S(1) ] /(90) [ &(90) S(3) ]
+  rule FRUITING @30 : Mm/Mm   # ...and the one after a flower sets a melon
+    Mm = S when x % 4 == 2 and x < 12 -> F +(16 * sin(x * 0.9) + 20 * rand() - 10) [ -(80) ^(40) F(0.12) &(40) @fruit ] [ +(55) ^(45) @leaf ] S(x + 1)
+  rule LATERAL @45 : Ms/Ms   # runner: alternate leaves, each with a tendril
+    Ms = S when x < 12 -> F +(16 * sin(x * 0.9) + 20 * rand() - 10) [ +(55 - 110 * (x % 2)) ^(45) @leaf ] [ -(60 - 120 * (x % 2)) @leaflet ] S(x + 1)
+  rule SEEDHEAD @55 : 0/0
+  num ANGLE @60 : am/am
+    am = 40
+  num PHYLLO @70 : gm/gm
+    gm = 90
+  num INTERNODE @85 : im/im
+    im = 0.2
+
+chromosome 2
+  organ leaf @10 : Ml/Ml
+    Ml = blade(lobed(n=5, depth=0.14), length=0.3, width=0.32, curl=-0.2, fold=0.1, wave=0.35, stalk=0.14,
+               color=hsl($LEAF_HUE, 0.45, 0.36))
+  organ leaflet @20 : Mt/Mt   # a tendril
+    Mt = spike(length=0.12, radius=0.004, bend=3, color=hsl(0.22, 0.4, 0.45))
+  organ flower @50 : Mw/Mw
+    Mw = group(whorl(petal, n=$PETALS, tilt=65), bulb(length=0.02, radius=0.012, color=hsl(0.13, 0.8, 0.45)))
+  num PIGMENT @55 : Pm/Pm
+    Pm dom 2 = 0.9
+  num PETAL_HUE @58 : ym/ym
+    ym = 0.14
+  organ petal @60 : Mp/Mp
+    Mp = blade(sf(m=1, n1=0.7, n2=1, n3=1), length=0.05, width=0.04, curl=-0.1,
+               color=hsl($PETAL_HUE, $PIGMENT, 0.6))
+  num PETALS @65 : fm/fm
+    fm = 5
+  organ fruit @80 : Mr/Mr   # a ribbed, golden melon
+    Mr = bulb(length=0.3, radius=0.13, point=0.7, ribs=10, ribdepth=0.05, color=hsl(0.12, 0.55, 0.55))
+
+chromosome 3
+  num TROPISM @10 : tm/tm   # no pull upward: the runners stay flat
+    tm = 0
+  num STEM_W @30 : swm/swm
+    swm = 0.014
+  num RESERVE @20 : rm/rm
+    rm = 5
+  num ALLOC @40 : alm/alm
+    alm = 0.75
+  num SHADE_TOL @50 : stm/stm
+    stm = 0.1
+  num APICAL @70 : apm/apm
+    apm = 0.7
+  num BLOOM_AGE @60 : em/em
+    em = 4
+  num TAPER @80 : km/km
+    km = 0.9
+  num LEAF_HUE @90 : hm/hm
+    hm = 0.29
+
+chromosome 4   # temperature tolerance: hot summers
+  num T_OPT @10 : cm/cm
+    cm = 27
+  num T_WIDTH @30 : nm/nm
+    nm = 10
+  num T_LETHAL_LO @55 : lm/lm
+    lm = 2
+  num T_LETHAL_HI @80 : sm/sm
+    sm = 44
+
+chromosome 5   # roots: a taproot with wide laterals
+  rule ROOT_APEX @10 : Rm/Rm
+    Rm = R when depth < $ROOT_DEPTH -> F(0.08) [ &(70) Q ] /(120) [ &(70) Q ] /(120) R
+  rule ROOT_LATERAL @30 : Lm/Lm
+    Lm = Q when x < 4 -> F(0.08) ~(12) [ &(40) @rootlet ] Q(x + 1)
+  organ rootlet @50 : rm/rm
+    rm = rootlet(length=0.06, radius=0.003, hairs=2)
+  num ROOT_DEPTH @60 : dm/dm
+    dm = 0.6
+  num ROOT_ALLOC @70 : am/am
+    am = 0.25
+  num ROOT_GRAV @85 : gm/gm
+    gm = 0.3
+`;
+
+export const STARTERS = [FERNWORT, OAKHART, SUNRAY, VINEWOOD, CANEBRAKE, PILLARSPINE, SWEETRIND];
