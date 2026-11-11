@@ -625,7 +625,7 @@ chromosome 1
   rule BLOOM @5 : Cd/Cd
     Cd dom 2 = A when step >= $BLOOM_AGE -> F(0.3) @head(4)   # the head faces straight up
   rule APEX @20 : Sa/Sa
-    Sa = A -> F ~(4) [ &(58) @leaf(mix(1.8, 0.5, step / $BLOOM_AGE)) ] /($PHYLLO) A   # big leaves low, small ones up the stem
+    Sa = A -> F ~(4) [ &(58) @leaf(mix(1.8, 0.5, step / $BLOOM_AGE) * $LEAF_SIZE) ] /($PHYLLO) A   # big leaves low, small ones up the stem
   rule LATERAL @45 : 0/0
   rule FRUITING @50 : 0/0
   rule SEEDHEAD @55 : 0/0
@@ -643,20 +643,20 @@ chromosome 2
   organ leaflet @20 : pu/pu
     pu = blade(ellipse(), length=0.1, width=0.05, color=hsl($LEAF_HUE, 0.5, 0.33))
   organ bract @40 : Cb/Cb   # a small flat scale with a pale rim
-    Cb = blade(ellipse(), length=0.024, width=0.015, curl=0.04, color=hsl(0.3, 0.3, 0.32), edge=hsl(0.2, 0.25, 0.62))
+    Cb = blade(ellipse(), length=0.024 * $SCALE_SIZE, width=0.015 * $SCALE_SIZE, curl=0.04, color=hsl(0.3, 0.3, 0.32), edge=hsl(0.2, 0.25, 0.62))
   organ scales @42 : Cs/Cs   # scales lying flat on a ball of radius 0.032, in spirals (rings looked like a pineapple)
-    Cs = group(spiral(offset(tilt(bract, deg=-78), y=0.031), n=46, height=0, tilt=155, shrink=1),
-               spiral(offset(tilt(bract, deg=-80), y=0.032), n=38, height=0, tilt=84, shrink=1))
+    Cs = group(spiral(offset(tilt(bract, deg=-78), y=0.031), n=46 * $SCALES, height=0, tilt=155, shrink=1),
+               spiral(offset(tilt(bract, deg=-80), y=0.032), n=38 * $SCALES, height=0, tilt=84, shrink=1))
   organ floret @45 : Cf/Cf   # a thin strand curving up and in (a negative bend), so the brush is a dome
-    Cf = spike(length=0.065, radius=0.005, bend=-0.22, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+    Cf = spike(length=0.065, radius=$STRAND_W, bend=-0.22, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
   organ sweep @46 : Cw/Cw   # a long side strand that sweeps up to almost the height of the middle
-    Cw = spike(length=0.095, radius=0.005, bend=-0.75, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
+    Cw = spike(length=0.095, radius=$STRAND_W, bend=-0.75, color=hsl($PETAL_HUE, $PIGMENT, 0.74))
   organ brush @47 : Cr/Cr   # the soft lavender brush, a round dome
-    Cr = group(spiral(floret, n=64, height=0.012, tilt=92, shrink=0.996),   # spirals, not whorls: one even tuft, no rings
-               spiral(sweep, n=80, height=0.01, tilt=98, shrink=1),   # full sides, curving up
-               spiral(sweep, n=60, height=0.01, tilt=84, shrink=1),
-               spiral(floret, n=44, height=0.012, tilt=52, shrink=1),
-               spiral(floret, n=26, height=0.01, tilt=22, shrink=1))   # enough in the middle, or the top looks sunken
+    Cr = group(spiral(floret, n=64 * $STRANDS, height=0.012, tilt=92, shrink=0.996),   # spirals, not whorls: one even tuft, no rings
+               spiral(sweep, n=80 * $STRANDS, height=0.01, tilt=98, shrink=1),   # full sides, curving up
+               spiral(sweep, n=60 * $STRANDS, height=0.01, tilt=84, shrink=1),
+               spiral(floret, n=44 * $STRANDS, height=0.012, tilt=52, shrink=1),
+               spiral(floret, n=26 * $STRANDS, height=0.01, tilt=22, shrink=1))   # enough in the middle, or the top looks sunken
   organ head @50 : Ch/Ch   # a scaly ball with a purple brush on top
     Ch = offset(group(offset(bulb(length=0.064, radius=0.03, color=hsl(0.25, 0.3, 0.3)), y=-0.032),
                       scales, offset(brush, y=0.02)), y=0.032)
@@ -698,6 +698,17 @@ chromosome 3
     yw = 0
   num SOFT_SHADE @99 : ss/ss   # a mellow, pastel shadow
     ss = 0.5
+  # how dense and how big the head's parts are (1 = the plant as drawn); a simpler logo sets them with ?set=
+  num STRANDS @100 : sn/sn   # share of the brush's strands
+    sn = 1
+  num STRAND_W @101 : sw/sw   # a strand's radius at its base, m
+    sw = 0.005
+  num SCALES @102 : sc/sc   # share of the ball's scales
+    sc = 1
+  num SCALE_SIZE @103 : sz/sz   # size of a scale
+    sz = 1
+  num LEAF_SIZE @104 : lz/lz   # size of the stem's leaves (0: none)
+    lz = 1
 
 chromosome 4   # temperature tolerance: a summer annual
   num T_OPT @10 : cu/cu

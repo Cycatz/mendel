@@ -2,7 +2,7 @@
 // Keys 1–8 (or ?plant=N) pick the starter, R regrows with a new seed, T toggles the roots.
 // For exported pictures: ?seed=N, ?bg=scene|paper|clear (&paper=%23rrggbb), ?ui=0 hides the caption and
 // button, ?turn=DEG and ?lift=DEG orbit the opening view, ?zoom=K moves in, ?focus=head frames the top,
-// ?pan=F slides the plant across the frame (F of the view's half-width; + puts it on the left),
+// ?fov=DEG narrows the lens (keeping the framing), ?pan=F slides the plant across the frame (F of the view's half-width; + puts it on the left),
 // ?set=GENE:VALUE,GENE:VALUE replaces those num genes of the ?plant shown (e.g. set=PETAL_HUE:0.8).
 // The Look panel (top left) sets PETAL_HUE and INK, with presets, and writes them back as ?set=.
 import * as THREE from 'three';
@@ -23,7 +23,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 400);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 400);   // ?fov= narrows it (a flatter, drawn look)
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 // the wheel handler moves the camera itself (inside controls.update), so the loop never sees it
@@ -185,6 +185,11 @@ function show(i: number, keepView = false) {
   sph.theta += num('turn', 0) * Math.PI / 180;
   sph.phi = THREE.MathUtils.clamp(sph.phi - num('lift', 0) * Math.PI / 180, 0.05, Math.PI * 0.495);
   sph.radius /= Math.max(0.05, num('zoom', 1));
+  if (Q.has('fov')) {   // keep the framing: move back as the view narrows
+    const f = THREE.MathUtils.clamp(num('fov', 40), 2, 90);
+    sph.radius *= Math.tan((camera.fov * Math.PI) / 360) / Math.tan((f * Math.PI) / 360);
+    camera.fov = f; camera.far = Math.max(400, sph.radius * 4); camera.updateProjectionMatrix();
+  }
   camera.position.copy(controls.target).add(off.setFromSpherical(sph));
   camera.lookAt(controls.target);
   if (Q.has('pan')) {   // slide target and camera together along the view's right vector
