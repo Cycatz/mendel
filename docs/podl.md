@@ -309,7 +309,7 @@ Parameters are clamped to keep shapes buildable:
 - `scale.s` is clamped to 0.05–5.
 - Blade `length` is clamped to 0.02–6 and `width` to 0.01–6.
 
-Building stops descending past 8 levels of nesting, 20 000 vertices or 5000 visited nodes.
+Building stops descending past 8 levels of nesting, 80 000 vertices or 20 000 visited nodes.
 
 If an organ yields no geometry, its placements are skipped.
 

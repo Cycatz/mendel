@@ -229,7 +229,8 @@ export function buildOrgan(spec: Spec): Mesh {
 
 function emit(spec: Spec | null | undefined, M: Mat, mb: MeshBuilder, depth: number): void {
   // visit budget: nested compositions that emit no geometry would otherwise explode combinatorially
-  if (!spec || typeof spec !== 'object' || depth > 8 || mb.count > 20000 || ++mb.visits > 5000) return;
+  // guards: nested copies multiply fast (a spiral of whorls of chains), so one short line could hang the page
+  if (!spec || typeof spec !== 'object' || depth > 8 || mb.count > 80000 || ++mb.visits > 20000) return;
   const sub = (s: Spec, m: Mat) => emit(s, mulMat(M, m), mb, depth + 1);
   const c = spec as unknown as CompSpec;
   switch (spec.type) {
