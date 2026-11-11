@@ -3,10 +3,11 @@
 // For exported pictures: ?seed=N, ?bg=scene|paper|clear (&paper=%23rrggbb), ?ui=0 hides the caption and
 // button, ?turn=DEG and ?lift=DEG orbit the opening view, ?zoom=K moves in, ?focus=head frames the top,
 // ?pan=F slides the plant across the frame (F of the view's half-width; + puts it on the left),
-// ?set=GENE:VALUE,GENE:VALUE replaces those num genes' alleles (e.g. set=PETAL_HUE:0.8).
+// ?set=GENE:VALUE,GENE:VALUE replaces those num genes of the ?plant shown (e.g. set=PETAL_HUE:0.8).
+// The Look panel (top left) sets PETAL_HUE and INK, with presets, and writes them back as ?set=.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { develop, parseGenome, plantMesh, STARTERS } from './podl';
+import { develop, parseGenome, plantMesh, STARTERS, type Genome } from './podl';
 import { createPlate, GROUND_LAYER } from './render/plate';
 import { createGround } from './render/ground';
 import { plantGeometry } from './render/plantMesh';
@@ -52,9 +53,18 @@ scene.add(ground.group);
 plate.setCrownShade(ground.shade);
 
 const genomes = STARTERS.map(s => parseGenome(s));
+// Replace a num gene's alleles with one value, adding the gene if the genome lacks it.
+function setGene(g: Genome, name: string, value: string) {
+  const l = g.loci.find(l => l.name === name);
+  if (l) { if (l.kind === 'num') l.alleles.forEach(a => { a.src = value; a.dom = 1; }); return; }
+  const a = { id: 'set', dom: 1, src: value };
+  g.loci.push({ name, kind: 'num', chrom: '99', pos: 0, alleles: [a, { ...a }] });
+}
+// ?plant=1..8 picks the starter shown first (handy for screenshots); ?set= changes only that plant
+const first = Math.max(0, Math.min(genomes.length - 1, (Number(Q.get('plant')) || 1) - 1));
 for (const kv of (Q.get('set') ?? '').split(',').filter(Boolean)) {
   const [k, v] = kv.split(':');
-  for (const g of genomes) for (const l of g.loci) if (l.name === k && l.kind === 'num') l.alleles.forEach(a => { a.src = v; });
+  if (k && v && Number.isFinite(+v)) setGene(genomes[first], k, v);
 }
 let mesh: THREE.Group | null = null;
 let rootMesh: THREE.Mesh | null = null;
@@ -63,6 +73,55 @@ const bgKind = (['scene', 'paper', 'clear'] as const).find(k => k === Q.get('bg'
 plate.setBackdrop(bgKind, Q.get('paper') ?? '#f2e9d4');
 if (bgKind === 'clear') document.documentElement.style.background = document.body.style.background = 'transparent';
 if (Q.get('ui') === '0') { caption.hidden = true; rootsButton.hidden = true; }
+
+// The Look panel: the flower's colour (PETAL_HUE) and the outline's strength (INK), with presets.
+const look = document.querySelector<HTMLFormElement>('#look')!;
+const hueInput = document.querySelector<HTMLInputElement>('#hue')!, inkInput = document.querySelector<HTMLInputElement>('#ink')!;
+const HUES: [string, number][] = [['Lavender', 0.8], ['Mauve', 0.87], ['Rose', 0.95]];
+const INKS: [string, number][] = [['Strong', 0.7], ['Light', 0.45], ['Faint', 0.25]];
+if (Q.get('ui') === '0') look.hidden = true;
+let curDev: ReturnType<typeof develop> | null = null, touched = false;
+function presetButtons(box: string, list: [string, number][], pick: (v: number) => void, swatch: boolean) {
+  const el = document.querySelector<HTMLElement>(box)!;
+  for (const [label, v] of list) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.v = String(v);
+    if (swatch) { const s = document.createElement('span'); s.className = 'swatch'; s.style.background = `hsl(${v * 360} 45% 70%)`; b.append(s); }
+    b.append(label);
+    b.addEventListener('click', () => pick(v));
+    el.append(b);
+  }
+}
+function syncLook() {
+  if (!curDev) return;
+  const hue = curDev.gene('PETAL_HUE'), ink = curDev.gene('INK');
+  hueInput.value = String(hue); inkInput.value = String(ink);
+  for (const [box, v] of [['#hue-presets', hue], ['#ink-presets', ink]] as const)
+    document.querySelectorAll<HTMLButtonElement>(`${box} button`).forEach(b => b.setAttribute('aria-pressed', String(Math.abs(+b.dataset.v! - v) < 0.003)));
+  // once changed, keep the pick in the URL, so a reload or an export (?set=) shows it again
+  if (!touched) return;
+  const u = new URL(location.href);
+  u.searchParams.set('plant', String(current + 1));
+  u.searchParams.set('set', `PETAL_HUE:${+hue.toFixed(3)},INK:${+ink.toFixed(2)}`);
+  history.replaceState(null, '', u);
+}
+let regrow = 0;
+function setHue(v: number) {
+  touched = true;
+  setGene(genomes[current], 'PETAL_HUE', String(v));
+  cancelAnimationFrame(regrow);
+  regrow = requestAnimationFrame(() => show(current, true));   // colours are baked into the mesh
+}
+function setInk(v: number) {
+  touched = true;
+  setGene(genomes[current], 'INK', String(v));
+  if (curDev) curDev = develop(genomes[current], { seed });
+  plate.setInkWeight(v); syncLook(); redraw();
+}
+presetButtons('#hue-presets', HUES, setHue, true);
+presetButtons('#ink-presets', INKS, setInk, false);
+hueInput.addEventListener('input', () => setHue(+hueInput.value));
+inkInput.addEventListener('input', () => setInk(+inkInput.value));
 
 function setRoots(on: boolean) {
   showRoots = on;
@@ -73,9 +132,11 @@ function setRoots(on: boolean) {
 }
 rootsButton.addEventListener('click', () => setRoots(!showRoots));
 
-function show(i: number) {
+// keepView: regrow in place (a Look change) without moving the camera
+function show(i: number, keepView = false) {
   current = i;
   const dev = develop(genomes[i], { seed });
+  curDev = dev;
   const grown = plantMesh(dev);
   plate.setInkWeight(dev.gene('INK'));
   plate.setInkTint(dev.gene('INK_TINT'));
@@ -93,6 +154,8 @@ function show(i: number) {
     if (part === grown.roots) rootMesh = m;
   }
   scene.add(mesh);
+  syncLook();
+  if (keepView) { setRoots(showRoots); return; }
   // frame the whole specimen, roots included, so toggling them doesn't move the camera
   // (exports, ?ui=0, frame the shoot alone: the roots are hidden there)
   const box = Q.get('ui') === '0' ? new THREE.Box3().setFromObject(mesh.children[0]) : new THREE.Box3().setFromObject(mesh);
@@ -160,12 +223,12 @@ function tick() {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (e.key >= '1' && e.key <= String(genomes.length)) show(+e.key - 1);
+  if ((e.target as HTMLElement).closest?.('#look') && e.key.startsWith('Arrow')) return;
+  if (e.key >= '1' && e.key <= String(genomes.length)) { touched = false; history.replaceState(null, '', location.pathname); show(+e.key - 1); }
   if (e.key === 'r') { seed++; show(current); }
   if (e.key === 't') setRoots(!showRoots);
 });
 
 resize();
-// ?plant=1..8 picks the starter shown first (handy for screenshots)
-show(Math.max(0, Math.min(genomes.length - 1, (Number(Q.get('plant')) || 1) - 1)));
+show(first);
 tick();

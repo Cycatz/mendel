@@ -15,12 +15,35 @@
         font: italic 16px/1.2 Georgia, 'Times New Roman', serif; color: var(--plate-ink);
         background: transparent; border: 1px solid var(--plate-ink); border-radius: 2px; }
       #roots:hover { background: rgba(43, 32, 25, 0.08); }
+      #look { position: fixed; top: 16px; left: 16px; display: grid; gap: 10px; padding: 10px 12px;
+        font: italic 15px/1.2 Georgia, 'Times New Roman', serif; color: var(--plate-ink);
+        background: rgba(242, 233, 212, 0.86); border: 1px solid var(--plate-ink); border-radius: 2px; }
+      #look fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
+      #look legend { padding: 0; margin-bottom: 4px; }
+      #look .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+      #look button { font: inherit; color: inherit; background: transparent; cursor: pointer;
+        border: 1px solid rgba(43, 32, 25, 0.35); border-radius: 2px; padding: 3px 8px; display: flex; align-items: center; gap: 6px; }
+      #look button:hover { background: rgba(43, 32, 25, 0.08); }
+      #look button[aria-pressed="true"] { border-color: var(--plate-ink); background: rgba(43, 32, 25, 0.12); }
+      #look .swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(43, 32, 25, 0.4); }
+      #look input[type=range] { width: 100%; accent-color: var(--plate-ink); }
+      @media (max-width: 520px) { #look { top: auto; bottom: 12vh; left: 12px; right: 12px; } }
     </style>
   </head>
   <body>
     <canvas id="view"></canvas>
     <div id="caption"></div>
     <button id="roots" type="button" aria-pressed="false">Show roots</button>
+    <form id="look" aria-label="Look" onsubmit="return false">
+      <fieldset><legend>Flower colour</legend>
+        <div class="presets" id="hue-presets"></div>
+        <input id="hue" type="range" min="0" max="1" step="0.005" aria-label="Flower hue">
+      </fieldset>
+      <fieldset><legend>Outline</legend>
+        <div class="presets" id="ink-presets"></div>
+        <input id="ink" type="range" min="0" max="1" step="0.05" aria-label="Outline strength">
+      </fieldset>
+    </form>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
