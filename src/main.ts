@@ -77,6 +77,7 @@ if (Q.get('ui') === '0') { caption.hidden = true; rootsButton.hidden = true; }
 // The Look panel: the flower's colour (PETAL_HUE) and the outline's strength (INK), with presets.
 const look = document.querySelector<HTMLFormElement>('#look')!;
 const hueInput = document.querySelector<HTMLInputElement>('#hue')!, inkInput = document.querySelector<HTMLInputElement>('#ink')!;
+const hueOut = document.querySelector<HTMLOutputElement>('#hue-out')!, inkOut = document.querySelector<HTMLOutputElement>('#ink-out')!;
 const HUES: [string, number][] = [['Lavender', 0.8], ['Mauve', 0.87], ['Rose', 0.95]];
 const INKS: [string, number][] = [['Strong', 0.7], ['Light', 0.45], ['Faint', 0.25]];
 if (Q.get('ui') === '0') look.hidden = true;
@@ -96,6 +97,9 @@ function syncLook() {
   if (!curDev) return;
   const hue = curDev.gene('PETAL_HUE'), ink = curDev.gene('INK');
   hueInput.value = String(hue); inkInput.value = String(ink);
+  const name = (list: [string, number][], v: number) => list.find(([, p]) => Math.abs(p - v) < 0.003)?.[0];
+  hueOut.innerHTML = `<span class="swatch" style="background:hsl(${hue * 360} 45% 70%)"></span>${name(HUES, hue) ?? 'Custom'}`;
+  inkOut.textContent = `${name(INKS, ink) ?? 'Custom'}, ${Math.round(ink * 100)}%`;
   for (const [box, v] of [['#hue-presets', hue], ['#ink-presets', ink]] as const)
     document.querySelectorAll<HTMLButtonElement>(`${box} button`).forEach(b => b.setAttribute('aria-pressed', String(Math.abs(+b.dataset.v! - v) < 0.003)));
   // once changed, keep the pick in the URL, so a reload or an export (?set=) shows it again

@@ -26,7 +26,14 @@
       #look button:hover { background: rgba(43, 32, 25, 0.08); }
       #look button[aria-pressed="true"] { border-color: var(--plate-ink); background: rgba(43, 32, 25, 0.12); }
       #look .swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(43, 32, 25, 0.4); }
-      #look input[type=range] { width: 100%; accent-color: var(--plate-ink); }
+      #look input[type=range] { width: 100%; accent-color: var(--plate-ink); margin: 0; }
+      #look legend { display: flex; justify-content: space-between; width: 100%; gap: 12px; }
+      #look output { font-style: normal; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+      #hue { -webkit-appearance: none; appearance: none; height: 14px; border-radius: 7px; border: 1px solid rgba(43, 32, 25, 0.35);
+        background: linear-gradient(to right, hsl(0 45% 70%), hsl(30 45% 70%), hsl(60 45% 70%), hsl(90 45% 70%), hsl(120 45% 70%), hsl(150 45% 70%), hsl(180 45% 70%), hsl(210 45% 70%), hsl(240 45% 70%), hsl(270 45% 70%), hsl(300 45% 70%), hsl(330 45% 70%), hsl(360 45% 70%)); }
+      #hue::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid var(--plate-ink); }
+      #hue::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--plate-ink); }
+      #look .ends { display: flex; justify-content: space-between; font-size: 12px; opacity: 0.75; margin-top: -2px; }
       @media (max-width: 520px) { #look { top: auto; bottom: 12vh; left: 12px; right: 12px; } }
     </style>
   </head>
@@ -35,13 +42,14 @@
     <div id="caption"></div>
     <button id="roots" type="button" aria-pressed="false">Show roots</button>
     <form id="look" aria-label="Look" onsubmit="return false">
-      <fieldset><legend>Flower colour</legend>
+      <fieldset><legend><span>Flower colour</span><output id="hue-out" for="hue"></output></legend>
         <div class="presets" id="hue-presets"></div>
-        <input id="hue" type="range" min="0" max="1" step="0.005" aria-label="Flower hue">
+        <input id="hue" type="range" min="0" max="1" step="0.005" aria-label="Flower colour: drag along the colours">
       </fieldset>
-      <fieldset><legend>Outline</legend>
+      <fieldset><legend><span>Outline</span><output id="ink-out" for="ink"></output></legend>
         <div class="presets" id="ink-presets"></div>
-        <input id="ink" type="range" min="0" max="1" step="0.05" aria-label="Outline strength">
+        <input id="ink" type="range" min="0" max="1" step="0.05" aria-label="Outline strength, from none to full">
+        <div class="ends" aria-hidden="true"><span>None</span><span>Full</span></div>
       </fieldset>
     </form>
     <script type="module" src="/src/main.ts"></script>
