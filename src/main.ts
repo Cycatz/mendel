@@ -48,7 +48,7 @@ plate.setCrownShade(ground.shade);
 const genomes = STARTERS.map(s => parseGenome(s));
 let mesh: THREE.Group | null = null;
 let rootMesh: THREE.Mesh | null = null;
-let current = 0, seed = 1, showRoots = true;
+let current = 0, seed = 1, showRoots = false;
 
 function setRoots(on: boolean) {
   showRoots = on;
